@@ -1,7 +1,5 @@
 package com.jcloisterzone.ui.dialog;
 
-import static com.jcloisterzone.ui.I18nUtils._;
-
 import java.awt.Container;
 import java.awt.Image;
 import java.awt.Point;
@@ -16,6 +14,10 @@ import net.miginfocom.swing.MigLayout;
 
 import com.jcloisterzone.board.Tile;
 import com.jcloisterzone.ui.Client;
+import com.jcloisterzone.ui.gtk.ThemedJLabel;
+import com.jcloisterzone.ui.gtk.ThemedJPanel;
+
+import static com.jcloisterzone.ui.I18nUtils._;
 
 public class DiscardedTilesDialog extends JDialog {
 
@@ -36,10 +38,11 @@ public class DiscardedTilesDialog extends JDialog {
         setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
 
         Container pane = getContentPane();
+        pane.setBackground(client.getTheme().getPanelBg());
         pane.setLayout(new MigLayout("", "[grow]", "[][]"));
-        pane.add(new JLabel(_("These tiles have been discarded during the game")), "wrap, growx, gapbottom 10");
+        pane.add(new ThemedJLabel(_("These tiles have been discarded during the game")), "wrap, growx, gapbottom 10");
 
-        panel = new JPanel();
+        panel = new ThemedJPanel();
         scroll = new JScrollPane(panel);
         pane.add(scroll, "wrap, grow, width 400::, height 150::");
         scroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_ALWAYS);

@@ -7,12 +7,14 @@ import java.awt.GraphicsDevice;
 import java.awt.GraphicsEnvironment;
 import java.awt.KeyEventDispatcher;
 import java.awt.KeyboardFocusManager;
+import java.awt.Window;
 import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.IOException;
+import java.lang.reflect.Method;
 import java.net.BindException;
 import java.net.InetSocketAddress;
 import java.net.URI;
@@ -55,14 +57,16 @@ import com.jcloisterzone.game.Snapshot;
 import com.jcloisterzone.ui.controls.ControlPanel;
 import com.jcloisterzone.ui.dialog.AboutDialog;
 import com.jcloisterzone.ui.dialog.DiscardedTilesDialog;
+import com.jcloisterzone.ui.dialog.HelpDialog;
+import com.jcloisterzone.ui.dialog.PreferencesDialog;
+import com.jcloisterzone.ui.dialog.TileDistributionWindow;
 import com.jcloisterzone.ui.grid.GridPanel;
 import com.jcloisterzone.ui.grid.MainPanel;
 import com.jcloisterzone.ui.gtk.MenuFix;
 import com.jcloisterzone.ui.plugin.Plugin;
 import com.jcloisterzone.ui.resources.ConvenientResourceManager;
 import com.jcloisterzone.ui.resources.PlugableResourceManager;
-import com.jcloisterzone.ui.theme.ControlsTheme;
-import com.jcloisterzone.ui.theme.FigureTheme;
+import com.jcloisterzone.ui.theme.Theme;
 import com.jcloisterzone.ui.view.GameView;
 import com.jcloisterzone.ui.view.StartView;
 import com.jcloisterzone.ui.view.UiView;
@@ -82,16 +86,16 @@ public class Client extends JFrame {
     private final Config config;
     private final ConfigLoader configLoader;
     private final ConvenientResourceManager resourceManager;
-
-    @Deprecated
-    private FigureTheme figureTheme;
-    @Deprecated
-    private ControlsTheme controlsTheme;
+    private final List<Plugin> plugins;
 
     private UiView view;
+    private Theme theme;
 
     //TODO move to GameView
     private DiscardedTilesDialog discardedTilesDialog;
+    private HelpDialog helpDialog;
+    private AboutDialog aboutDialog;
+    private TileDistributionWindow tileDistributionWindow;
 
     private final AtomicReference<SimpleServer> localServer = new AtomicReference<>();
     private ClientMessageListener clientMessageListener;
@@ -103,7 +107,8 @@ public class Client extends JFrame {
         this.dataDirectory = dataDirectory;
         this.configLoader = configLoader;
         this.config = config;
-        resourceManager = new ConvenientResourceManager(new PlugableResourceManager(this, plugins));
+        this.plugins = plugins;
+        resourceManager = new ConvenientResourceManager(new PlugableResourceManager(plugins));
     }
 
     public static Client getInstance() {
@@ -160,8 +165,14 @@ public class Client extends JFrame {
 
     public void init() {
         setLocale(config.getLocaleObject());
-        figureTheme = new FigureTheme(this);
-        controlsTheme = new ControlsTheme(this);
+
+        if ("dark".equalsIgnoreCase(config.getTheme())) {
+            theme = Theme.DARK;
+        } else {
+            theme = Theme.LIGHT;
+        }
+
+        config.setDarkTheme(theme.isDark());
 
         resetWindowIcon();
 
@@ -171,6 +182,7 @@ public class Client extends JFrame {
         } catch (Exception e) {
             logger.warn(e.getMessage(), e);
         }
+        theme.setUiMangerDefaults();
 
         setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
         this.addWindowListener(new WindowAdapter() {
@@ -190,6 +202,10 @@ public class Client extends JFrame {
         this.setTitle(BASE_TITLE);
         this.setVisible(true);
 
+        if (Bootstrap.isMac()) {
+            enableFullScreenMode();
+        }
+
         KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(new KeyEventDispatcher() {
             @Override
             public boolean dispatchKeyEvent(KeyEvent ev) {
@@ -198,6 +214,19 @@ public class Client extends JFrame {
                 return view.dispatchKeyEvent(ev);
             }
         });
+    }
+
+    private void enableFullScreenMode() {
+        String className = "com.apple.eawt.FullScreenUtilities";
+        String methodName = "setWindowCanFullScreen";
+
+        try {
+            Class<?> clazz = Class.forName(className);
+            Method method = clazz.getMethod(methodName, new Class<?>[] { Window.class, boolean.class });
+            method.invoke(null, this, true);
+        } catch (Throwable e) {
+            logger.info("OSX full screen mode isn't supported.", e);
+        }
     }
 
     @Override
@@ -209,26 +238,25 @@ public class Client extends JFrame {
         this.setIconImage(new ImageIcon(Client.class.getClassLoader().getResource("sysimages/ico.png")).getImage());
     }
 
+    public Theme getTheme() {
+        return theme;
+    }
+
     public Config getConfig() {
         return config;
     }
 
+    public List<Plugin> getPlugins() {
+        return plugins;
+    }
+
     public void saveConfig() {
         configLoader.save(config);
+        resourceManager.clearCache();
     }
 
     public ConvenientResourceManager getResourceManager() {
         return resourceManager;
-    }
-
-    @Deprecated
-    public FigureTheme getFigureTheme() {
-        return figureTheme;
-    }
-
-    @Deprecated
-    public ControlsTheme getControlsTheme() {
-        return controlsTheme;
     }
 
     public SimpleServer getLocalServer() {
@@ -449,8 +477,50 @@ public class Client extends JFrame {
         }
     }
 
-    public void handleAbout() {
-        new AboutDialog(config.getOrigin());
+    public void showHelpDialog() {
+        if (helpDialog == null) {
+            helpDialog = new HelpDialog();
+            helpDialog.addWindowListener(new WindowAdapter() {
+                @Override
+                public void windowClosed(WindowEvent e) {
+                    helpDialog = null;
+                }
+            });
+        } else {
+            helpDialog.toFront();
+        }
+    }
+
+    public void showAboutDialog() {
+        if (aboutDialog == null) {
+            aboutDialog = new AboutDialog(this, config.getOrigin());
+            aboutDialog.addWindowListener(new WindowAdapter() {
+                @Override
+                public void windowClosed(WindowEvent e) {
+                    aboutDialog = null;
+                }
+            });
+        } else {
+            aboutDialog.toFront();
+        }
+    }
+
+    public void showPreferncesDialog() {
+        new PreferencesDialog(this);
+    }
+
+    public void showTileDistribution() {
+        if (tileDistributionWindow == null) {
+            tileDistributionWindow = new TileDistributionWindow(this);
+            tileDistributionWindow.addWindowListener(new WindowAdapter() {
+                @Override
+                public void windowClosed(WindowEvent e) {
+                    tileDistributionWindow = null;
+                }
+            });
+        } else {
+            tileDistributionWindow.toFront();
+        }
     }
 
 

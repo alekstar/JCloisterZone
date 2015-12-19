@@ -1,10 +1,10 @@
 package com.jcloisterzone.game;
 
-import static com.jcloisterzone.ui.I18nUtils._;
-
 import java.util.EnumMap;
 
 import com.jcloisterzone.Expansion;
+
+import static com.jcloisterzone.ui.I18nUtils._;
 
 
 
@@ -13,8 +13,9 @@ public enum CustomRule {
 
     TINY_CITY_2_POINTS(Expansion.BASIC, Boolean.class, _("Tiny city is scored only for 2 points.")),
 
-    PRINCESS_MUST_REMOVE_KNIGHT(Expansion.PRINCESS_AND_DRAGON, Boolean.class, _("Princess MUST remove a knight from city.") + "(RGG, ZMG)"),
+    PRINCESS_MUST_REMOVE_KNIGHT(Expansion.PRINCESS_AND_DRAGON, Boolean.class, _("Princess MUST remove a knight from city.") + " (RGG, ZMG)"),
     DRAGON_MOVE_AFTER_SCORING(Expansion.PRINCESS_AND_DRAGON, Boolean.class, _("Dragon movement occurs after scoring.") + " (RGG)"),
+    FAIRY_ON_TILE(Expansion.PRINCESS_AND_DRAGON, Boolean.class, _("Place fairy on the tile. (instead of next to a follower)") + " (RGG, ZMG)"),
 
     ESCAPE_RGG(Expansion.CATHARS, Boolean.class, _("Escape cloister can be placed adjacent to any tile of a besieged city.") + " (RGG)"),
 
@@ -24,7 +25,7 @@ public enum CustomRule {
 
     TUNNELIZE_ALL_EXPANSIONS(Expansion.TUNNEL, Boolean.class, _("Apply tunnel rule on tunnels from other expansions.")),
 
-    BAZAAR_NO_AUCTION(Expansion.BRIDGES_CASTLES_AND_BAZAARS, Boolean.class, _("No bazaar bidding. Each players just choose one tile.")),
+    BAZAAR_NO_AUCTION(Expansion.BRIDGES_CASTLES_AND_BAZAARS, Boolean.class, _("No bazaar bidding. Each player just chooses one tile.")),
 
     KEEP_CLOISTERS(Expansion.GERMAN_MONASTERIES, Boolean.class, _("Keep basic cloisters in the game.")),
 

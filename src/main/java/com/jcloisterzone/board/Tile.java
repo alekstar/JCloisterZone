@@ -19,8 +19,8 @@ import com.jcloisterzone.feature.MultiTileFeature;
 import com.jcloisterzone.feature.Scoreable;
 import com.jcloisterzone.feature.Tower;
 import com.jcloisterzone.feature.visitor.IsOccupied;
-import com.jcloisterzone.feature.visitor.IsOccupiedOrCompleted;
 import com.jcloisterzone.feature.visitor.IsOccupiedAndUncompleted;
+import com.jcloisterzone.feature.visitor.IsOccupiedOrCompleted;
 import com.jcloisterzone.figure.Follower;
 import com.jcloisterzone.game.Game;
 
@@ -76,7 +76,7 @@ public class Tile /*implements Cloneable*/ {
         this.edgePattern = edgePattern;
     }
 
-    public char getEdge(Location side) {
+    public Edge getEdge(Location side) {
         return getEdgePattern().at(side, rotation);
     }
 
@@ -156,7 +156,9 @@ public class Tile /*implements Cloneable*/ {
             oppositePiece.setEdge(oppositeLoc, null);
             if (!isAbbeyTile()) {
                 MultiTileFeature thisPiece = (MultiTileFeature) getFeaturePartOf(loc);
-                thisPiece.setEdge(loc, null);
+                if (thisPiece != null) { //can be null for bridge undo
+                    thisPiece.setEdge(loc, null);
+                }
             }
         }
         for (int i = 0; i < 2; i++) {
@@ -242,6 +244,13 @@ public class Tile /*implements Cloneable*/ {
         bridge.setLocation(normalizedLoc);
         features.add(bridge);
         edgePattern = edgePattern.getBridgePattern(normalizedLoc);
+    }
+
+    public void removeBridge(Location bridgeLoc) {
+        Location normalizedLoc = bridgeLoc.rotateCCW(rotation);
+        features.remove(bridge);
+        bridge = null;
+        edgePattern = edgePattern.removeBridgePattern(normalizedLoc);
     }
 
     public Set<Location> getUnoccupiedScoreables(boolean excludeCompleted) {

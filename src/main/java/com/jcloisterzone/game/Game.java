@@ -31,7 +31,10 @@ import com.jcloisterzone.board.Position;
 import com.jcloisterzone.board.Tile;
 import com.jcloisterzone.board.TilePack;
 import com.jcloisterzone.board.pointer.FeaturePointer;
+import com.jcloisterzone.board.pointer.MeeplePointer;
+import com.jcloisterzone.event.BridgeEvent;
 import com.jcloisterzone.event.Event;
+import com.jcloisterzone.event.GoldChangeEvent;
 import com.jcloisterzone.event.Idempotent;
 import com.jcloisterzone.event.MeepleEvent;
 import com.jcloisterzone.event.PlayEvent;
@@ -47,6 +50,7 @@ import com.jcloisterzone.feature.visitor.score.CompletableScoreContext;
 import com.jcloisterzone.feature.visitor.score.ScoreContext;
 import com.jcloisterzone.figure.Follower;
 import com.jcloisterzone.figure.Meeple;
+import com.jcloisterzone.figure.neutral.NeutralFigure;
 import com.jcloisterzone.figure.predicate.MeeplePredicates;
 import com.jcloisterzone.game.capability.FairyCapability;
 import com.jcloisterzone.game.capability.PrincessCapability;
@@ -72,7 +76,8 @@ public class Game extends GameSettings implements EventProxy {
 
     /** list of players in game */
     private Player[] plist;
-    /** rules of current game */
+
+    private final List<NeutralFigure> neutralFigures = new ArrayList<>();
 
     /** player in turn */
     private Player turnPlayer;
@@ -83,7 +88,7 @@ public class Game extends GameSettings implements EventProxy {
     private List<Capability> capabilities = new ArrayList<>(); //TODO change to map?
     private FairyCapability fairyCapability; //shortcut - TODO remove
 
-    private Undoable lastUndoable;
+    private ArrayList<Undoable> lastUndoable = new ArrayList<>();
     private Phase lastUndoablePhase;
 
     private final EventBus eventBus = new EventBus(new EventBusExceptionHandler("game event bus"));
@@ -114,16 +119,18 @@ public class Game extends GameSettings implements EventProxy {
     }
 
     public Undoable getLastUndoable() {
-        return lastUndoable;
+        return lastUndoable.size() == 0 ? null : lastUndoable.get(lastUndoable.size()-1);
     }
 
     public void clearLastUndoable() {
-    	lastUndoable = null;
+        lastUndoable.clear();
     }
 
     private boolean isUiSupportedUndo(Event event) {
         if (event instanceof TileEvent && event.getType() == TileEvent.PLACEMENT) return true;
         if (event instanceof MeepleEvent && ((MeepleEvent) event).getTo() != null) return true;
+        if (event instanceof BridgeEvent && event.getType() == BridgeEvent.DEPLOY) return true;
+        if (event instanceof GoldChangeEvent) return true;
         return false;
     }
 
@@ -133,13 +140,20 @@ public class Game extends GameSettings implements EventProxy {
         for (Capability capability: capabilities) {
             capability.handleEvent(event);
         }
-        if (event instanceof PlayEvent) {
+        if (event instanceof PlayEvent && !event.isUndo()) {
             if (isUiSupportedUndo(event)) {
-                lastUndoable = (Undoable) event;
-                lastUndoablePhase = phase;
+                if ((event instanceof BridgeEvent && ((BridgeEvent)event).isForced()) ||
+                     event instanceof GoldChangeEvent && ((GoldChangeEvent)event).getPos().equals(getCurrentTile().getPosition())) {
+                    //just add to chain after tile event
+                    lastUndoable.add((Undoable) event);
+                } else {
+                    lastUndoable.clear();
+                    lastUndoable.add((Undoable) event);
+                    lastUndoablePhase = phase;
+                }
             } else {
                 if (event.getClass().getAnnotation(Idempotent.class) == null) {
-                    lastUndoable = null;
+                    lastUndoable.clear();
                     lastUndoablePhase = null;
                 }
             }
@@ -154,22 +168,22 @@ public class Game extends GameSettings implements EventProxy {
     }
 
     public boolean isUndoAllowed() {
-        return lastUndoable != null;
+        return lastUndoable.size() > 0;
     }
 
     public void undo() {
-        //proof of concept
-        if (lastUndoable instanceof TileEvent || lastUndoable instanceof MeepleEvent) {
-            Event inverse = lastUndoable.getInverseEvent();
+        for (int i = lastUndoable.size()-1; i >= 0; i--) {
+            Undoable ev = lastUndoable.get(i);
+            Event inverse = ev.getInverseEvent();
+            inverse.setUndo(true);
 
-            lastUndoable.undo(this);
-            phase = lastUndoablePhase;
-            lastUndoable = null;
-            lastUndoablePhase = null;
-
+            ev.undo(this);
             post(inverse); //should be post inside undo? silent vs. firing undo?
-            phase.enter();
         }
+        phase = lastUndoablePhase;
+        lastUndoable.clear();
+        lastUndoablePhase = null;
+        phase.reenter();
     }
 
     public Tile getCurrentTile() {
@@ -229,6 +243,10 @@ public class Game extends GameSettings implements EventProxy {
         return phase == null ? null : phase.getActivePlayer();
     }
 
+    public List<NeutralFigure> getNeutralFigures() {
+        return neutralFigures;
+    }
+
 
     /**
      * Ends turn of current active player and make active the next.
@@ -241,6 +259,12 @@ public class Game extends GameSettings implements EventProxy {
         int playerIndex = p.getIndex();
         int nextPlayerIndex = playerIndex == (plist.length - 1) ? 0 : playerIndex + 1;
         return getPlayer(nextPlayerIndex);
+    }
+
+    public Player getPrevPlayer(Player p) {
+        int playerIndex = p.getIndex();
+        int prevPlayerIndex = playerIndex == 0 ? plist.length - 1 : playerIndex - 1;
+        return getPlayer(prevPlayerIndex);
     }
 
 
@@ -286,16 +310,13 @@ public class Game extends GameSettings implements EventProxy {
         random.setSeed(randomSeed);
     }
 
-    public Meeple getMeeple(final Position p, final Location loc, Class<? extends Meeple> meepleType, Player owner) {
+    public Meeple getMeeple(MeeplePointer mp) {
         for (Meeple m : getDeployedMeeples()) {
-            if (m.at(p) && m.getLocation().equals(loc)) {
-                if (m.getClass().equals(meepleType) && m.getPlayer().equals(owner)) {
-                    return m;
-                }
-            }
+            if (m.at(mp)) return m;
         }
         return null;
     }
+
 
     public void setPlayers(List<Player> players, int turnPlayer) {
         Player[] plist = players.toArray(new Player[players.size()]);
@@ -374,7 +395,16 @@ public class Game extends GameSettings implements EventProxy {
         Follower follower = ctx.getSampleFollower(p);
         boolean isFinalScoring = getPhase() instanceof GameOverPhase;
         ScoreEvent scoreEvent;
-        if (fairyCapability != null && follower.at(fairyCapability.getFairyPosition())) {
+        boolean isFairyScore = false;
+        if (fairyCapability != null) {
+            for (Follower f : ctx.getFollowers()) {
+                if (f.getPlayer() == p && fairyCapability.isNextTo(f)) {
+                    isFairyScore = true;
+                    break;
+                }
+            }
+        }
+        if (isFairyScore) {
             p.addPoints(FairyCapability.FAIRY_POINTS_FINISHED_OBJECT, PointCategory.FAIRY);
             scoreEvent = new ScoreEvent(follower.getFeature(), points+FairyCapability.FAIRY_POINTS_FINISHED_OBJECT, pointCategory, follower);
             scoreEvent.setLabel(points+" + "+FairyCapability.FAIRY_POINTS_FINISHED_OBJECT);
@@ -391,6 +421,19 @@ public class Game extends GameSettings implements EventProxy {
         int points = ctx.getPoints();
         for (Player p : players) {
             scoreFeature(points, ctx, p);
+        }
+        if (fairyCapability != null) {
+            Set<Player> fairyPlayersWithoutMayority = new HashSet<>();
+            for (Follower f : ctx.getFollowers()) {
+                Player owner = f.getPlayer();
+                if (fairyCapability.isNextTo(f) && !players.contains(owner)
+                    && !fairyPlayersWithoutMayority.contains(owner)) {
+                    fairyPlayersWithoutMayority.add(owner);
+
+                    owner.addPoints(FairyCapability.FAIRY_POINTS_FINISHED_OBJECT, PointCategory.FAIRY);
+                    post(new ScoreEvent(f.getFeature(), FairyCapability.FAIRY_POINTS_FINISHED_OBJECT, PointCategory.FAIRY, f));
+                }
+            }
         }
     }
 

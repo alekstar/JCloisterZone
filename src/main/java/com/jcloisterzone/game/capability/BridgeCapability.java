@@ -13,11 +13,12 @@ import org.w3c.dom.NodeList;
 import com.jcloisterzone.Player;
 import com.jcloisterzone.action.BridgeAction;
 import com.jcloisterzone.action.PlayerAction;
+import com.jcloisterzone.board.Edge;
 import com.jcloisterzone.board.Location;
 import com.jcloisterzone.board.Position;
 import com.jcloisterzone.board.Tile;
 import com.jcloisterzone.board.pointer.FeaturePointer;
-import com.jcloisterzone.event.BridgeDeployedEvent;
+import com.jcloisterzone.event.BridgeEvent;
 import com.jcloisterzone.game.Capability;
 import com.jcloisterzone.game.Game;
 
@@ -79,8 +80,8 @@ public class BridgeCapability extends Capability {
             Tile adjacent = entry.getValue();
             Location rel = entry.getKey();
 
-            char adjacentSide = adjacent.getEdge(rel.rev());
-            char tileSide = tile.getEdge(rel);
+            Edge adjacentSide = adjacent.getEdge(rel.rev());
+            Edge tileSide = tile.getEdge(rel);
             if (tileSide != adjacentSide) {
                 Location bridgeLoc = getBridgeLocationForAdjacent(rel);
                 BridgeAction action = prepareTileBridgeAction(tile, null, bridgeLoc);
@@ -126,8 +127,8 @@ public class BridgeCapability extends Capability {
             Location rel = e.getKey();
             if (rel.intersect(bridgeLoc) != null) {
                 Tile adjacent = e.getValue();
-                char adjacentSide = adjacent.getEdge(rel.rev());
-                if (adjacentSide != 'R') return false;
+                Edge adjacentSide = adjacent.getEdge(rel.rev());
+                if (adjacentSide != Edge.ROAD) return false;
             }
         }
         return true;
@@ -149,10 +150,10 @@ public class BridgeCapability extends Capability {
             Tile adjacent = e.getValue();
             Location rel = e.getKey();
 
-            char adjacentSide = adjacent.getEdge(rel.rev());
-            char tileSide = tile.getEdge(rel);
+            Edge adjacentSide = adjacent.getEdge(rel.rev());
+            Edge tileSide = tile.getEdge(rel);
             if (rel.intersect(bridgeLoc) != null) {
-                if (adjacentSide != 'R') return false;
+                if (adjacentSide != Edge.ROAD) return false;
             } else {
                 if (adjacentSide != tileSide) return false;
             }
@@ -166,12 +167,12 @@ public class BridgeCapability extends Capability {
             Tile adjacent = e.getValue();
             Location rel = e.getKey();
 
-            char tileSide = tile.getEdge(rel);
-            char adjacentSide = adjacent.getEdge(rel.rev());
+            Edge tileSide = tile.getEdge(rel);
+            Edge adjacentSide = adjacent.getEdge(rel.rev());
 
             if (tileSide != adjacentSide) {
                 if (bridgeUsed) return false;
-                if (tileSide != 'R') return false;
+                if (tileSide != Edge.ROAD) return false;
 
                 Location bridgeLoc = getBridgeLocationForAdjacent(rel);
                 if (!isBridgePlacementAllowed(adjacent, adjacent.getPosition(), bridgeLoc)) return false;
@@ -191,14 +192,27 @@ public class BridgeCapability extends Capability {
         bridges.put(player, n-1);
     }
 
-    public void deployBridge(Position pos, Location loc) {
+    public void increaseBridges(Player player) {
+        int n = getPlayerBridges(player);
+        bridges.put(player, n+1);
+    }
+
+    public void deployBridge(Position pos, Location loc, boolean forced) {
         Tile tile = getBoard().get(pos);
         if (!tile.isBridgeAllowed(loc)) {
             throw new IllegalArgumentException("Cannot deploy " + loc + " bridge on " + pos);
         }
         bridgeUsed = true;
         tile.placeBridge(loc);
-        game.post(new BridgeDeployedEvent(game.getActivePlayer(), pos, loc));
+        BridgeEvent ev = new BridgeEvent(BridgeEvent.DEPLOY, game.getActivePlayer(), pos, loc);
+        ev.setForced(forced);
+        game.post(ev);
+    }
+
+    public void undoDeployBridge(Position pos, Location loc) {
+        Tile tile = getBoard().get(pos);
+        bridgeUsed = false;
+        tile.removeBridge(loc);
     }
 
 

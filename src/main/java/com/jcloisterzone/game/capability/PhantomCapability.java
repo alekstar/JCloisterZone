@@ -19,13 +19,6 @@ public class PhantomCapability extends Capability {
 
     @Override
     public void initPlayer(Player player) {
-        player.addMeeple(new Phantom(game, player));
-    }
-
-    @Override
-    public void prepareActions(List<PlayerAction<?>> actions, Set<FeaturePointer> followerOptions) {
-        if (game.getActivePlayer().hasFollower(Phantom.class) && !followerOptions.isEmpty()) {
-            actions.add(new MeepleAction(Phantom.class).addAll(followerOptions));
-        }
+        player.addMeeple(new Phantom(game, null, player));
     }
 }

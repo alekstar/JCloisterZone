@@ -12,17 +12,17 @@ public class AppUpdate {
     private String downloadUrl;
 
     public static AppUpdate fetch(URL url) {
-        Element el = XmlUtils.parseDocument(url).getDocumentElement();
-        String version = XmlUtils.childValue(el, "number");
-        String description = XmlUtils.childValue(el, "description");
+        Element el = XMLUtils.parseDocument(url).getDocumentElement();
+        String version = XMLUtils.childValue(el, "number");
+        String description = XMLUtils.childValue(el, "description");
 
         boolean isWin = System.getProperty("os.name").startsWith("Win");
         String downloadUrl = null;
         NodeList nl = el.getElementsByTagName("url");
         for (int i = 0; i < nl.getLength(); i++) {
             String value = nl.item(i).getTextContent().trim();
-            boolean isZip = value.endsWith(".zip");
-            if (downloadUrl == null || (isWin == isZip)) {
+            boolean isWinUrl = value.endsWith(".zip") || value.endsWith(".7z") || value.endsWith(".exe");
+            if (downloadUrl == null || (isWin == isWinUrl)) {
                 downloadUrl = value;
             }
         }

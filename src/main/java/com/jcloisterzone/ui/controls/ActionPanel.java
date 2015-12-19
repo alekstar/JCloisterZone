@@ -20,6 +20,7 @@ import com.jcloisterzone.action.TilePlacementAction;
 import com.jcloisterzone.ui.Client;
 import com.jcloisterzone.ui.component.MultiLineLabel;
 import com.jcloisterzone.ui.grid.ForwardBackwardListener;
+import com.jcloisterzone.ui.resources.LayeredImageDescriptor;
 import com.jcloisterzone.ui.view.GameView;
 
 import static com.jcloisterzone.ui.I18nUtils._;
@@ -207,7 +208,7 @@ public class ActionPanel extends MouseTrackingComponent implements ForwardBackwa
             return;
         }
 
-        g2.setColor(ControlPanel.PLAYER_BG_COLOR);
+        g2.setColor(client.getTheme().getPlayerBoxBg());
         g2.fillRoundRect(0, LINE_Y, getWidth()+CORNER_DIAMETER, LINE_HEIGHT, CORNER_DIAMETER, CORNER_DIAMETER);
 
         int x = LEFT_MARGIN;
@@ -244,7 +245,7 @@ public class ActionPanel extends MouseTrackingComponent implements ForwardBackwa
 
     @Override
     public void mouseClicked(MouseEvent e, MouseListeningRegion origin) {
-        if (showConfirmRequest) return;
+        if (showConfirmRequest || actions == null || actions.length == 0) return;
         if (e.getButton() == MouseEvent.BUTTON1) {
             Integer i = (Integer) origin.getData();
             if (selectedActionIndex == i) {
@@ -285,7 +286,8 @@ public class ActionPanel extends MouseTrackingComponent implements ForwardBackwa
         if (fakeAction == null) {
             fakeActionImage = null;
         } else {
-            fakeActionImage = client.getFigureTheme().getLayeredImage("actions/"+fakeAction, null).getScaledInstance(FAKE_ACTION_SIZE, FAKE_ACTION_SIZE, Image.SCALE_SMOOTH);
+        	fakeActionImage = client.getResourceManager().getLayeredImage(new LayeredImageDescriptor("actions/"+fakeAction));
+        	fakeActionImage = fakeActionImage.getScaledInstance(FAKE_ACTION_SIZE, FAKE_ACTION_SIZE, Image.SCALE_SMOOTH);
         }
         repaint();
     }

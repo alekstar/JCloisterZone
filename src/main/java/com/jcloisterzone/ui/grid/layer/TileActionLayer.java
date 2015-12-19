@@ -4,7 +4,7 @@ import java.awt.Graphics2D;
 import java.awt.Image;
 import java.awt.event.MouseEvent;
 
-import com.jcloisterzone.action.FairyAction;
+import com.jcloisterzone.action.FairyOnTileAction;
 import com.jcloisterzone.action.GoldPieceAction;
 import com.jcloisterzone.action.SelectTileAction;
 import com.jcloisterzone.action.TowerPieceAction;
@@ -31,12 +31,12 @@ public class TileActionLayer extends AbstractGridLayer implements GridMouseListe
         this.active = active;
         if (action == null) {
             gridDecoration = null;
-        } else if (action instanceof FairyAction) {
-            gridDecoration = getClient().getControlsTheme().getActionDecoration("fairy");
+        } else if (action instanceof FairyOnTileAction) {
+            gridDecoration = rm.getImage("decorations/fairy");
         } else if (action instanceof TowerPieceAction) {
-            gridDecoration = getClient().getControlsTheme().getActionDecoration("tower");
+            gridDecoration =  rm.getImage("decorations/tower");
         } else if (action instanceof GoldPieceAction) {
-            gridDecoration = getClient().getControlsTheme().getActionDecoration("gold");
+            gridDecoration = rm.getImage("decorations/gold");
         }
     }
 
@@ -45,7 +45,8 @@ public class TileActionLayer extends AbstractGridLayer implements GridMouseListe
         return action;
     }
 
-    public void paint(Graphics2D g2) {
+    @Override
+	public void paint(Graphics2D g2) {
         int imgSize = gridDecoration.getWidth(null);
         for (Position pos : action.getOptions()) {
             g2.drawImage(gridDecoration, getAffineTransform(imgSize, pos), null);

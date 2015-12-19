@@ -2,7 +2,6 @@ package com.jcloisterzone.ui.view;
 
 import static com.jcloisterzone.ui.I18nUtils._;
 
-import java.awt.BorderLayout;
 import java.awt.Container;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
@@ -44,7 +43,6 @@ import com.jcloisterzone.ui.controls.chat.ChatPanel;
 import com.jcloisterzone.ui.dialog.GameSetupDialog;
 import com.jcloisterzone.ui.grid.GridPanel;
 import com.jcloisterzone.ui.grid.MainPanel;
-import com.jcloisterzone.ui.panel.BackgroundPanel;
 import com.jcloisterzone.wsio.Connection;
 import com.jcloisterzone.wsio.message.UndoMessage;
 
@@ -91,12 +89,11 @@ public class GameView extends AbstractUiView implements WindowStateListener {
 
     @Override
     public void show(Container pane, Object ctx) {
-        BackgroundPanel bg = new BackgroundPanel();
-        bg.setLayout(new BorderLayout());
-        pane.add(bg);
-
         mainPanel = new MainPanel(client, this, chatPanel);
-        bg.add(mainPanel, BorderLayout.CENTER);
+        mainPanel.setBackground(client.getTheme().getMainBg());
+
+        pane.add(mainPanel);
+
         gc.getReportingTool().setContainer(mainPanel);
         mainPanel.started(snapshot);
 

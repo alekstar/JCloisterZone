@@ -1,7 +1,6 @@
 package com.jcloisterzone.ui.resources;
 
 import java.awt.Image;
-import java.awt.geom.Area;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -23,21 +22,16 @@ import com.jcloisterzone.ui.plugin.Plugin;
 public class PlugableResourceManager implements ResourceManager {
 
     protected final transient Logger logger = LoggerFactory.getLogger(getClass());
-
-    private final Client client;
     private final List<ResourceManager> managers;
 
 
-    public PlugableResourceManager(Client client, List<Plugin> plugins) {
-        this.client = client;
+    public PlugableResourceManager(List<Plugin> plugins) {
         managers = new ArrayList<>();
-
         for (Plugin p: plugins) {
             if (p instanceof ResourceManager) {
                 managers.add((ResourceManager) p);
             }
         }
-
         managers.add(new DefaultResourceManager());
     }
 
@@ -47,6 +41,7 @@ public class PlugableResourceManager implements ResourceManager {
             Image result = manager.getTileImage(tile);
             if (result != null) return result;
         }
+        logger.warn("Unable to load tile image for {}", tile.getId());
         return null;
     }
 
@@ -56,6 +51,27 @@ public class PlugableResourceManager implements ResourceManager {
             Image result = manager.getAbbeyImage();
             if (result != null) return result;
         }
+        logger.warn("Unable to load tile Abbey image");
+        return null;
+    }
+
+    @Override
+    public Image getImage(String path) {
+    	for (ResourceManager manager : managers) {
+            Image result = manager.getImage(path);
+            if (result != null) return result;
+        }
+    	logger.warn("Unable to load image {}", path);
+        return null;
+    }
+
+    @Override
+    public Image getLayeredImage(LayeredImageDescriptor lid) {
+    	for (ResourceManager manager : managers) {
+            Image result = manager.getLayeredImage(lid);
+            if (result != null) return result;
+        }
+    	logger.warn("Unable to load layered image {}", lid.getBaseName());
         return null;
     }
 
@@ -70,18 +86,18 @@ public class PlugableResourceManager implements ResourceManager {
     }
 
     @Override
-    public Map<Location, Area> getBarnTileAreas(Tile tile, int size, Set<Location> corners) {
+    public Map<Location, FeatureArea> getBarnTileAreas(Tile tile, int size, Set<Location> corners) {
         for (ResourceManager manager : managers) {
-            Map<Location, Area> result = manager.getBarnTileAreas(tile, size, corners);
+            Map<Location, FeatureArea> result = manager.getBarnTileAreas(tile, size, corners);
             if (result != null) return result;
         }
         return null;
     }
 
     @Override
-    public Map<Location, Area> getBridgeAreas(Tile tile, int size, Set<Location> locations) {
+    public Map<Location, FeatureArea> getBridgeAreas(Tile tile, int size, Set<Location> locations) {
         for (ResourceManager manager : managers) {
-            Map<Location, Area> result = manager.getBridgeAreas(tile, size, locations);
+            Map<Location, FeatureArea> result = manager.getBridgeAreas(tile, size, locations);
             if (result != null) return result;
         }
         return null;
@@ -89,9 +105,9 @@ public class PlugableResourceManager implements ResourceManager {
 
 
     @Override
-    public Map<Location, Area> getFeatureAreas(Tile tile, int size, Set<Location> locations) {
+    public Map<Location, FeatureArea> getFeatureAreas(Tile tile, int size, Set<Location> locations) {
         for (ResourceManager manager : managers) {
-            Map<Location, Area> result = manager.getFeatureAreas(tile, size, locations);
+            Map<Location, FeatureArea> result = manager.getFeatureAreas(tile, size, locations);
             if (result != null) return result;
         }
         return null;

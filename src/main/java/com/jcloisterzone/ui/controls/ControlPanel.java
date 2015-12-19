@@ -15,6 +15,7 @@ import java.util.List;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
@@ -25,6 +26,7 @@ import com.google.common.eventbus.Subscribe;
 import com.jcloisterzone.Player;
 import com.jcloisterzone.PlayerClock;
 import com.jcloisterzone.PointCategory;
+import com.jcloisterzone.action.AbbeyPlacementAction;
 import com.jcloisterzone.action.PlayerAction;
 import com.jcloisterzone.board.Tile;
 import com.jcloisterzone.board.TilePack;
@@ -58,11 +60,6 @@ public class ControlPanel extends JPanel {
 
     private static Font FONT_PACK_SIZE = new Font(null, Font.PLAIN, 20);
 
-    public static final Color HEADER_FONT_COLOR = new Color(170, 170, 170, 200);
-    public static final Color PLAYER_BG_COLOR = new Color(210, 210, 210, 200);
-    public static final Color PANEL_BG_COLOR = new Color(255, 255, 255, 225);
-    public static final Color PANEL_DARK_BG_COLOR = new Color(255, 255, 255, 245);
-    public static final Color PANEL_BG_COLOR_SHADOW = new Color(255, 255, 255, 158);
 
     @Deprecated
     public static final Color FONT_SHADOW_COLOR = new Color(0, 0, 0, 60);
@@ -89,6 +86,7 @@ public class ControlPanel extends JPanel {
 
     private ActionPanel actionPanel;
     private PlayerPanel[] playerPanels;
+    private NeutralFigurePanel neutralPanel;
 
     private BazaarCapability bcb;
     private BazaarSupplyPanel bazaarSupplyPanel;
@@ -136,6 +134,9 @@ public class ControlPanel extends JPanel {
             add(playerPanels[i], "wrap, growx, gapleft 35, gapbottom 12, h pref");
         }
 
+        neutralPanel = new NeutralFigurePanel(client, game, cache);
+        add(neutralPanel, "wrap, growx, gapleft 35, gapbottom 12, h pref");
+
         //better be accurate and repaint just every second - TODO
         timer = new Timer(500, new ActionListener() {
             @Override
@@ -155,7 +156,7 @@ public class ControlPanel extends JPanel {
 
 
     private void paintBackgroundBody(Graphics2D g2) {
-        g2.setColor(PANEL_BG_COLOR);
+        g2.setColor(client.getTheme().getTransparentPanelBg());
         g2.fillRect(LEFT_MARGIN+LEFT_PADDING , 0, getWidth()-LEFT_MARGIN-LEFT_PADDING, getHeight());
     }
 
@@ -165,15 +166,15 @@ public class ControlPanel extends JPanel {
 
         Player player = game.getTurnPlayer();
         if (player == null) {
-            g2.setColor(PANEL_BG_COLOR);
+            g2.setColor(client.getTheme().getTransparentPanelBg());
             g2.fillRect(-LEFT_PADDING , 0, LEFT_PADDING, h);
-            g2.setColor(PANEL_BG_COLOR_SHADOW);
+            g2.setColor(client.getTheme().getPanelShadow());
             g2.fillRect(-LEFT_PADDING-3, 0, 3, h);
         } else {
             PlayerPanel pp = playerPanels[player.getIndex()];
             int y = pp.getY() + pp.getRealHeight() / 2;
 
-            g2.setColor(PANEL_BG_COLOR);
+            g2.setColor(client.getTheme().getTransparentPanelBg());
             g2.fillRect(-LEFT_PADDING , 0, LEFT_PADDING, y-ACTIVE_MARKER_SIZE);
             g2.fillRect(-LEFT_PADDING , y+ACTIVE_MARKER_SIZE, LEFT_PADDING, h-y-ACTIVE_MARKER_SIZE);
             g2.fillPolygon(
@@ -184,7 +185,7 @@ public class ControlPanel extends JPanel {
                 new int[] { -LEFT_PADDING, 0, 0, -ACTIVE_MARKER_PADDING },
                 new int[] { y+ACTIVE_MARKER_SIZE, y+ACTIVE_MARKER_SIZE, y, y}, 4
             );
-            g2.setColor(PANEL_BG_COLOR_SHADOW);
+            g2.setColor(client.getTheme().getPanelShadow());
             //g2.setColor(Color.RED);
             g2.fillRect(-LEFT_PADDING-PANEL_SHADOW_WIDTH, 0, PANEL_SHADOW_WIDTH, y-ACTIVE_MARKER_SIZE);
             g2.fillRect(-LEFT_PADDING-PANEL_SHADOW_WIDTH, y+ACTIVE_MARKER_SIZE, PANEL_SHADOW_WIDTH, h-y+ACTIVE_MARKER_SIZE);
@@ -203,7 +204,7 @@ public class ControlPanel extends JPanel {
             PlayerPanel pp = playerPanels[player.getIndex()];
             int y = pp.getY() + pp.getRealHeight() / 2;
 
-            g2.setColor(Color.BLACK);
+            g2.setColor(client.getTheme().getMarkerColor());
 //            g2.fillPolygon(
 //                new int[] { -LEFT_PADDING-PANEL_SHADOW_WIDTH, -PANEL_SHADOW_WIDTH-ACTIVE_MARKER_PADDING, -LEFT_PADDING-PANEL_SHADOW_WIDTH},
 //                new int[] { y-ACTIVE_MARKER_SIZE, y, y+ACTIVE_MARKER_SIZE,}, 3
@@ -229,7 +230,7 @@ public class ControlPanel extends JPanel {
         TilePack tilePack = game.getTilePack();
         if (tilePack != null) { //null is possible for just loaded game
             g2.setFont(FONT_PACK_SIZE);
-            g2.setColor(HEADER_FONT_COLOR);
+            g2.setColor(client.getTheme().getHeaderFontColor());
             int packSize = tilePack.totalSize();
             g2.drawString("" + packSize, w - 42, 24);
         }
@@ -247,6 +248,8 @@ public class ControlPanel extends JPanel {
         for (PlayerPanel pp : playerPanels) {
             doRevalidate = doRevalidate || pp.repaintContent(w);
         }
+        doRevalidate = doRevalidate || neutralPanel.repaintContent(w);
+
         if (doRevalidate) {
             revalidate();
         }
@@ -261,14 +264,32 @@ public class ControlPanel extends JPanel {
         paintBackgroundShadow((Graphics2D) g);
     }
 
+    private boolean isLastAbbeyPlacement() {
+    	PlayerAction<?>[] actions = actionPanel.getActions();
+    	if (actions == null) return false;
+    	if (actions.length == 0) return false;
+    	if (!(actions[0] instanceof AbbeyPlacementAction)) return false;
+    	return game.getTilePack().size() == 0;
+    }
+
     public void pass() {
-        if (showConfirmRequest) {
-            setShowConfirmRequest(false);
-            gc.getConnection().send(new CommitMessage(game.getGameId()));
-            repaint();
-        } else {
-            if (canPass) {
-                gc.getRmiProxy().pass();
+        if (game.getActivePlayer().isLocalHuman()) {
+            if (showConfirmRequest) {
+                setShowConfirmRequest(false);
+                gc.getConnection().send(new CommitMessage(game.getGameId()));
+                repaint();
+            } else {
+            	if (isLastAbbeyPlacement()) {
+            	    String[] options = new String[] {_("Skip Abbey"), _("Cancel and place Abbey") };
+            		int result = JOptionPane.showOptionDialog(client,
+                        _("This is your last turn. If you skip it your Abbey remain unplaced."),
+                        _("Last chance to place the Abbey"),
+                        JOptionPane.OK_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+                    if (result == -1 || result == 1) { //closed dialog
+                        return;
+                    }
+            	}
+            	gc.getRmiProxy().pass();
             }
         }
     }
@@ -345,14 +366,15 @@ public class ControlPanel extends JPanel {
 
     @Subscribe
     public void handleRequestConfirm(RequestConfirmEvent ev) {
-    	clearActions();
+        clearActions();
         if (ev.getTargetPlayer().isLocalHuman()) {
             setShowConfirmRequest(true);
         } else {
-        	actionPanel.setShowConfirmRequest(true, true);
-        	repaint();
+            actionPanel.setShowConfirmRequest(true, true);
+            repaint();
         }
     }
+
 
     @Subscribe
     public void handleClockUpdateEvent(ClockUpdateEvent ev) {

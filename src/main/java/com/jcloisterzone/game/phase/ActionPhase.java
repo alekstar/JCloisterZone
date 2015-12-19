@@ -12,15 +12,23 @@ import com.jcloisterzone.action.PlayerAction;
 import com.jcloisterzone.board.Location;
 import com.jcloisterzone.board.Position;
 import com.jcloisterzone.board.TileTrigger;
+import com.jcloisterzone.board.pointer.BoardPointer;
 import com.jcloisterzone.board.pointer.FeaturePointer;
+import com.jcloisterzone.board.pointer.MeeplePointer;
 import com.jcloisterzone.event.FlierRollEvent;
-import com.jcloisterzone.event.NeutralFigureMoveEvent;
 import com.jcloisterzone.event.SelectActionEvent;
 import com.jcloisterzone.feature.City;
 import com.jcloisterzone.feature.Feature;
+import com.jcloisterzone.feature.visitor.IsOccupied;
+import com.jcloisterzone.figure.BigFollower;
+import com.jcloisterzone.figure.Follower;
 import com.jcloisterzone.figure.Meeple;
+import com.jcloisterzone.figure.Phantom;
 import com.jcloisterzone.figure.SmallFollower;
+import com.jcloisterzone.figure.neutral.Fairy;
+import com.jcloisterzone.figure.neutral.NeutralFigure;
 import com.jcloisterzone.figure.predicate.MeeplePredicates;
+import com.jcloisterzone.game.CustomRule;
 import com.jcloisterzone.game.Game;
 import com.jcloisterzone.game.capability.BridgeCapability;
 import com.jcloisterzone.game.capability.FairyCapability;
@@ -57,6 +65,13 @@ public class ActionPhase extends Phase {
         if (getActivePlayer().hasFollower(SmallFollower.class)  && !followerLocations.isEmpty()) {
             actions.add(new MeepleAction(SmallFollower.class).addAll(followerLocations));
         }
+        //HACK put this directly here instead of BigFollower or Phatom capability - to avoid "priority" issues
+        if (game.getActivePlayer().hasFollower(BigFollower.class) && !followerLocations.isEmpty()) {
+            actions.add(new MeepleAction(BigFollower.class).addAll(followerLocations));
+        }
+        if (getActivePlayer().hasFollower(Phantom.class)  && !followerLocations.isEmpty()) {
+            actions.add(new MeepleAction(Phantom.class).addAll(followerLocations));
+        }
         game.prepareActions(actions, ImmutableSet.copyOf(followerLocations));
         game.post(new SelectActionEvent(getActivePlayer(), actions, true));
     }
@@ -92,16 +107,21 @@ public class ActionPhase extends Phase {
     }
 
     @Override
-    public void moveFairy(Position p) {
-        if (!Iterables.any(getActivePlayer().getFollowers(), MeeplePredicates.at(p))) {
-            throw new IllegalArgumentException("The tile has deployed not own follower.");
+    public void moveNeutralFigure(BoardPointer ptr, Class<? extends NeutralFigure> figureType) {
+        if (Fairy.class.equals(figureType)) {
+            if (!Iterables.any(getActivePlayer().getFollowers(), MeeplePredicates.at(ptr.getPosition()))) {
+                throw new IllegalArgumentException("The tile has deployed not own follower.");
+            }
+            Fairy fairy = game.getCapability(FairyCapability.class).getFairy();
+            if (game.getBooleanValue(CustomRule.FAIRY_ON_TILE)) {
+                fairy.deploy(ptr.getPosition());
+            } else {
+                fairy.deploy((MeeplePointer) ptr);
+            }
+            next();
+        } else {
+            super.moveNeutralFigure(ptr, figureType);
         }
-
-        FairyCapability cap = game.getCapability(FairyCapability.class);
-        Position fromPosition = cap.getFairyPosition();
-        cap.setFairyPosition(p);
-        game.post(new NeutralFigureMoveEvent(NeutralFigureMoveEvent.FAIRY, getActivePlayer(), fromPosition, p));
-        next();
     }
 
     private boolean isFestivalUndeploy(Meeple m) {
@@ -124,8 +144,8 @@ public class ActionPhase extends Phase {
     }
 
     @Override
-    public void undeployMeeple(Position p, Location loc, Class<? extends Meeple> meepleType, Integer meepleOwner) {
-        Meeple m = game.getMeeple(p, loc, meepleType, game.getPlayer(meepleOwner));
+    public void undeployMeeple(MeeplePointer mp) {
+        Meeple m = game.getMeeple(mp);
         boolean princess = isPrincessUndeploy(m);
         if (isFestivalUndeploy(m) || princess) {
             m.undeploy();
@@ -139,17 +159,23 @@ public class ActionPhase extends Phase {
     }
 
     @Override
-    public void placeTunnelPiece(Position p, Location loc, boolean isB) {
-        game.getCapability(TunnelCapability.class).placeTunnelPiece(p, loc, isB);
+    public void placeTunnelPiece(FeaturePointer fp, boolean isB) {
+        game.getCapability(TunnelCapability.class).placeTunnelPiece(fp, isB);
         next(ActionPhase.class);
     }
 
 
     @Override
-    public void deployMeeple(Position p, Location loc, Class<? extends Meeple> meepleType) {
+    public void deployMeeple(FeaturePointer fp, Class<? extends Meeple> meepleType) {
         Meeple m = getActivePlayer().getMeepleFromSupply(meepleType);
-        m.deployUnoccupied(getBoard().get(p), loc);
-        if (portalCap != null && loc != Location.TOWER && getTile().hasTrigger(TileTrigger.PORTAL) && !p.equals(getTile().getPosition())) {
+        //TODO nice to have validation in separate class (can be turned off eg for loadFromSnapshots or in AI (to speed it)
+        if (m instanceof Follower) {
+            if (getBoard().get(fp).walk(new IsOccupied())) {
+                throw new IllegalArgumentException("Feature is occupied.");
+            }
+        }
+        m.deploy(fp);
+        if (portalCap != null && fp.getLocation() != Location.TOWER && getTile().hasTrigger(TileTrigger.PORTAL) && !fp.getPosition().equals(getTile().getPosition())) {
             //magic gate usage
             portalCap.setPortalUsed(true);
         }
@@ -160,7 +186,7 @@ public class ActionPhase extends Phase {
     public void deployBridge(Position pos, Location loc) {
         BridgeCapability bridgeCap = game.getCapability(BridgeCapability.class);
         bridgeCap.decreaseBridges(getActivePlayer());
-        bridgeCap.deployBridge(pos, loc);
+        bridgeCap.deployBridge(pos, loc, false);
         next(ActionPhase.class);
     }
 

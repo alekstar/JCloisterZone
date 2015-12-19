@@ -1,6 +1,8 @@
 package com.jcloisterzone.game.phase;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
 
 import com.jcloisterzone.board.Tile;
 import com.jcloisterzone.board.TileGroupState;
@@ -21,15 +23,20 @@ public class DrawPhase extends ServerAwarePhase {
     private List<String> debugTiles;
     private final BazaarCapability bazaarCap;
     private final AbbeyCapability abbeyCap;
+    private final RiverCapability riverCap;
 
     public DrawPhase(Game game, GameController controller) {
         super(game, controller);
         DebugConfig debugConfig = getDebugConfig();
         if (debugConfig != null) {
-            debugTiles = debugConfig.getDraw();
+            List<String> draw = debugConfig.getDraw();
+            if (draw != null && !draw.isEmpty()) {
+                debugTiles = new ArrayList<String>(draw);
+            }
         }
         bazaarCap = game.getCapability(BazaarCapability.class);
         abbeyCap = game.getCapability(AbbeyCapability.class);
+        riverCap = game.getCapability(RiverCapability.class);
     }
 
     private boolean makeDebugDraw() {
@@ -69,7 +76,7 @@ public class DrawPhase extends ServerAwarePhase {
         if (getTilePack().isEmpty()) {
             if (abbeyCap != null && !getActivePlayer().equals(abbeyCap.getAbbeyRoundLastPlayer())) {
                 if (abbeyCap.getAbbeyRoundLastPlayer() == null) {
-                    abbeyCap.setAbbeyRoundLastPlayer(getActivePlayer());
+                    abbeyCap.setAbbeyRoundLastPlayer(game.getPrevPlayer(getActivePlayer()));
                 }
                 next(CleanUpTurnPartPhase.class);
                 return;
@@ -90,6 +97,7 @@ public class DrawPhase extends ServerAwarePhase {
         getBoard().refreshAvailablePlacements(tile);
         if (getBoard().getAvailablePlacementPositions().isEmpty()) {
             getBoard().discardTile(tile);
+            if (riverCap != null) riverCap.turnPartCleanUp(); //force group activation if neeeded
             next(DrawPhase.class);
             return;
         }
