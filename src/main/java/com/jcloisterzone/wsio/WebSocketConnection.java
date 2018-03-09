@@ -17,7 +17,6 @@ import com.jcloisterzone.config.Config;
 import com.jcloisterzone.wsio.message.HelloMessage;
 import com.jcloisterzone.wsio.message.JoinGameMessage;
 import com.jcloisterzone.wsio.message.PingMessage;
-import com.jcloisterzone.wsio.message.RmiMessage;
 import com.jcloisterzone.wsio.message.WelcomeMessage;
 import com.jcloisterzone.wsio.message.WsMessage;
 
@@ -31,6 +30,7 @@ public class WebSocketConnection implements Connection {
     private URI uri;
     private final MessageListener listener;
 
+    private long msgSequence;
     private String sessionId;
     private String clientId;
     private String secret; //TODO will be used for message signing
@@ -45,49 +45,55 @@ public class WebSocketConnection implements Connection {
     private ScheduledFuture<?> reconnectFuture;
 
     class WebSocketClientImpl extends WebSocketClient {
-    	private String username;
-    	private String reconnectGameId;
+        private String username;
+        private String reconnectGameId;
 
-		public WebSocketClientImpl(URI serverURI, String username, String reconnectGameId) {
-			super(serverURI);
-			this.username = username;
-			this.reconnectGameId = reconnectGameId;
-		}
+        public WebSocketClientImpl(URI serverURI, String username, String reconnectGameId) {
+            super(serverURI);
+//            if (System.getProperty("hearthbeat") != null) {
+//                setConnectionLostTimeout(Integer.parseInt(System.getProperty("hearthbeat")));
+//            } else {
+//                setConnectionLostTimeout(DEFAULT_HEARTHBEAT_INTERVAL);
+//            }
+            this.username = username;
+            this.reconnectGameId = reconnectGameId;
+        }
 
-		@Override
+        @Override
         public void onClose(int code, String reason, boolean remote) {
-        	cancelPing();
+            cancelPing();
+
+            // workaround for https://github.com/TooTallNate/Java-WebSocket/issues/587
+            //ws.setConnectionLostTimeout(0);
+
             listener.onWebsocketClose(code, reason, remote && !closedByUser);
         }
 
         @Override
         public void onError(Exception ex) {
-        	if (reconnectFuture != null) return; //don't handle connection refuse while trying to reconnect
-        	if (ex instanceof WebsocketNotConnectedException) {
-        		cancelPing();
+            if (reconnectFuture != null) return; //don't handle connection refuse while trying to reconnect
+            if (ex instanceof WebsocketNotConnectedException) {
+                cancelPing();
                 listener.onWebsocketClose(0, ex.getMessage(), true);
-        	} else {
-        		listener.onWebsocketError(ex);
-        	}
+            } else {
+                listener.onWebsocketError(ex);
+            }
         }
 
         @Override
-        public void onMessage(String payload) {
+        synchronized public void onMessage(String payload) {
             WsMessage msg = parser.fromJson(payload);
             if (logger.isInfoEnabled()) {
-                if (msg instanceof RmiMessage) {
-                    logger.info(((RmiMessage)msg).toString());
-                } else {
-                    logger.info(payload);
-                }
+                logger.info(payload);
             }
-            if (reportingTool != null) {
-                if (msg instanceof RmiMessage) {
-                    reportingTool.report(((RmiMessage)msg).toString());
-                } else {
-                    reportingTool.report(payload);
-                }
+
+            if (msgSequence != msg.getSequenceNumber()) {
+                String errMessage = String.format("Message lost. Received #%s but expected #%s.", msg.getSequenceNumber(), msgSequence);
+                listener.onWebsocketError(new MessageLostException(errMessage));
+                close(Connection.CLOSE_MESSAGE_LOST, errMessage);
+                return;
             }
+            msgSequence = msg.getSequenceNumber() + 1;
 
             if (msg instanceof WelcomeMessage) {
                 WelcomeMessage welcome = (WelcomeMessage) msg;
@@ -102,9 +108,12 @@ public class WebSocketConnection implements Connection {
 
         @Override
         public void onOpen(ServerHandshake arg0) {
+            msgSequence = 1;
             WebSocketConnection.this.send(new HelloMessage(username, clientId, secret));
             if (reconnectGameId != null) {
-            	WebSocketConnection.this.send(new JoinGameMessage(reconnectGameId));
+                JoinGameMessage msg = new JoinGameMessage();
+                msg.setGameId(reconnectGameId);
+                WebSocketConnection.this.send(msg);
             }
         }
     }
@@ -120,30 +129,30 @@ public class WebSocketConnection implements Connection {
 
     @Override
     public void reconnect(final String gameId) {
-    	reconnectFuture = scheduler.scheduleAtFixedRate(new Runnable() {
+        reconnectFuture = scheduler.scheduleWithFixedDelay(new Runnable() {
             @Override
             public void run() {
-            	ws = new WebSocketClientImpl(uri, nickname, gameId);
+                ws = new WebSocketClientImpl(uri, nickname, gameId);
                 try {
-					if (ws.connectBlocking()) {
-						stopReconnecting();
-					}
-				} catch (InterruptedException e) {
-				}
+                    if (ws.connectBlocking()) {
+                        stopReconnecting();
+                    }
+                } catch (InterruptedException e) {
+                }
             }
         }, 1, 4, TimeUnit.SECONDS);
     }
 
     @Override
     public void stopReconnecting() {
-    	if (reconnectFuture != null) {
-    		reconnectFuture.cancel(false);
-    		reconnectFuture = null;
-    	}
+        if (reconnectFuture != null) {
+            reconnectFuture.cancel(false);
+            reconnectFuture = null;
+        }
     }
 
     private void cancelPing() {
-    	if (pingFuture != null) {
+        if (pingFuture != null) {
             pingFuture.cancel(false);
             pingFuture = null;
         }
@@ -162,6 +171,9 @@ public class WebSocketConnection implements Connection {
 
     @Override
     public void send(WsMessage arg) {
+        if (ws.isClosed() || ws.isClosing()) {
+            return;
+        }
         schedulePing();
         try {
             ws.send(parser.toJson(arg));
@@ -172,13 +184,13 @@ public class WebSocketConnection implements Connection {
 
     @Override
     public void close() {
-    	closedByUser = true;
+        closedByUser = true;
         ws.close();
     }
 
     @Override
     public boolean isClosed() {
-    	return ws.isClosed() || ws.isClosing();
+        return ws.isClosed() || ws.isClosing();
     }
 
     @Override
@@ -205,5 +217,12 @@ public class WebSocketConnection implements Connection {
 
     public String getMaintenance() {
         return maintenance;
+    }
+
+    public static class MessageLostException extends Exception {
+
+        public MessageLostException(String message) {
+            super(message);
+        }
     }
 }

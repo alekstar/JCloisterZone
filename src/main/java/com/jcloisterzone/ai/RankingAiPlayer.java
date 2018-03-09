@@ -1,135 +1,93 @@
 package com.jcloisterzone.ai;
 
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 
-import javax.xml.transform.TransformerException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import com.google.common.eventbus.Subscribe;
-import com.jcloisterzone.ai.choice.AiChoice;
-import com.jcloisterzone.config.Config.DebugConfig;
-import com.jcloisterzone.event.RequestConfirmEvent;
-import com.jcloisterzone.event.SelectActionEvent;
-import com.jcloisterzone.event.SelectDragonMoveEvent;
-import com.jcloisterzone.game.Game;
-import com.jcloisterzone.game.PlayerSlot;
-import com.jcloisterzone.game.Snapshot;
-import com.jcloisterzone.game.phase.LoadGamePhase;
-import com.jcloisterzone.wsio.message.CommitMessage;
+import com.jcloisterzone.Player;
+import com.jcloisterzone.board.TileTrigger;
+import com.jcloisterzone.game.GameSetup;
+import com.jcloisterzone.game.GameStatePhaseReducer;
+import com.jcloisterzone.game.state.GameState;
+import com.jcloisterzone.wsio.message.PlaceTileMessage;
+import com.jcloisterzone.wsio.message.WsInGameMessage;
+import com.jcloisterzone.wsio.message.WsSaltMeesage;
 
-public abstract class RankingAiPlayer extends AiPlayer {
+import io.vavr.Tuple2;
+import io.vavr.collection.Queue;
+import io.vavr.collection.Vector;
 
-    private static ExecutorService executor = Executors.newFixedThreadPool(1);
+public abstract class RankingAiPlayer implements AiPlayer {
 
-    //private Map<Feature, AiScoreContext> scoreCache = new HashMap<>();
-    //private List<PositionLocation> hopefulGatePlacements = new ArrayList<PositionLocation>();
+    protected final transient Logger logger = LoggerFactory.getLogger(getClass());
 
-//    public Map<Feature, AiScoreContext> getScoreCache() {
-//        return scoreCache;
-//    }
+    private GameStateRanking stateRanking;
+    private GameStatePhaseReducer phaseReducer;
 
-    private final GameRanking gameRanking;
-    private final AtomicReference<AiChoice> bestChain = new AtomicReference<>();
+    private Player me;
+    private Vector<WsInGameMessage> messages = Vector.empty();
 
+    protected abstract GameStateRanking createStateRanking(Player me);
 
-    public RankingAiPlayer() {
-        gameRanking = createGameRanking();
+    @Override
+    public void onGameStart(GameSetup setup, Player me) {
+        this.me = me;
+        phaseReducer = new GameStatePhaseReducer(setup, 0);
+        stateRanking = createStateRanking(me);
     }
 
-    abstract protected GameRanking createGameRanking();
+    @Override
+    public WsInGameMessage apply(GameState state) {
+        if (messages.isEmpty()) {
+            Double bestSoFar = Double.NEGATIVE_INFINITY;
+            Queue<Tuple2<GameState, Vector<WsInGameMessage>>> queue = Queue.of(new Tuple2<>(state, Vector.empty()));
 
-    public GameRanking getGameRanking() {
-        return gameRanking;
-    }
+            while (!queue.isEmpty()) {
+                Tuple2<Tuple2<GameState, Vector<WsInGameMessage>>, Queue<Tuple2<GameState, Vector<WsInGameMessage>>>> t = queue.dequeue();
+                queue = t._2;
+                Tuple2<GameState, Vector<WsInGameMessage>> item = t._1;
+                GameState itemState = item._1;
 
+                for (WsInGameMessage msg : getPossibleActions(itemState)) {
+                    Vector<WsInGameMessage> chain = item._2.append(msg);
+                    GameState newState = phaseReducer.apply(itemState, msg);
+                    boolean end = newState.getActivePlayer() != me || msg instanceof WsSaltMeesage;
 
-    public AiChoice getBestChain() {
-        return bestChain.get();
-    }
+                    if (!end && msg instanceof PlaceTileMessage &&
+                        newState.getLastPlaced().getTile().getTrigger() == TileTrigger.PORTAL) {
+                        // hack to avoid bad performance on Portal tile
+                        // rank just placement then rang meeple placement separately
+                        // still not perfect because it can miss good on tile meeple placement
+                        end = true;
+                    }
 
-    public void setBestChain(AiChoice bestChain) {
-        this.bestChain.set(bestChain);
-    }
+                    if (end) {
+                        Double ranking = stateRanking.apply(newState);
 
-    protected void popActionChain() {
-        AiChoice toExecute = null;
-        AiChoice best = bestChain.get();
-        if (best.getPrevious() == null) {
-            toExecute = best;
-            bestChain.set(null);
-        } else {
-            AiChoice choice = best;
-            while (choice.getPrevious().getPrevious() != null) {
-                choice = choice.getPrevious();
+//                      String chainStr = chain.map(_msg -> _msg.getClass().getSimpleName()).toJavaStream().collect(Collectors.joining(", "));
+//                      System.err.println(String.format(">>> %f\n%s", ranking, chainStr));
+
+                        if (ranking > bestSoFar) {
+                            bestSoFar = ranking;
+                            messages = chain;
+                        }
+                    } else {
+                        queue = queue.enqueue(new Tuple2<>(newState, chain));
+                    }
+                }
             }
-            toExecute = choice.getPrevious();
-            choice.setPrevious(null); //cut last element from chain
-        }
-        //logger.info("pop chain " + this.toString() + ": " + toExecute.toString());
-        //execute after chain update is done
-        toExecute.perform(getRmiProxy());
-    }
 
-    private void autosave() {
-        DebugConfig debugConfig = gc.getConfig().getDebug();
-        if (debugConfig != null && debugConfig.getAutosave() != null && debugConfig.getAutosave().length() > 0) {
-            Snapshot snapshot = new Snapshot(game);
-            if ("plain".equals(debugConfig.getSave_format())) {
-                snapshot.setGzipOutput(false);
-            }
-            try {
-                snapshot.save(new FileOutputStream(debugConfig.getAutosave()));
-            } catch (TransformerException | IOException e) {
-                logger.error("Auto save before ranking failed.", e);
+            if (logger.isDebugEnabled()) {
+                String chainStr = messages.map(_msg -> _msg.getClass().getSimpleName()).toJavaStream().collect(Collectors.joining(", "));
+                logger.debug(String.format("Best ranking %s, %s", bestSoFar, chainStr));
             }
         }
+
+        WsInGameMessage msg = messages.get();
+        messages = messages.drop(1);
+
+        return msg;
     }
 
-    @Subscribe
-    public void requestConfirm(RequestConfirmEvent ev) {
-    	if (isAiActive(ev)) {
-    		getGameController().getConnection().send(new CommitMessage(game.getGameId()));
-    	}
-    }
-
-    @Subscribe
-    public void selectAction(SelectActionEvent ev) {
-    	if (isAiActive(ev)) {
-            //logger.info("SA " + game.getTilePack().size() + "|" + ev.getPlayer() + " > " + ev.getActions().toString() + " ?" + (getBestChain()==null?"null":"chain"));
-            if (getBestChain() != null) {
-                popActionChain();
-            } else {
-                autosave();
-                executor.submit(new SelectActionTask(this, ev));
-            }
-        } else {
-            if (getBestChain() != null) {
-                logger.warn("AI action chain wasn't fully used! There is an error in ranking engine.");
-                setBestChain(null);
-            }
-        }
-    }
-
-    @Subscribe
-    public void selectDragonMove(SelectDragonMoveEvent ev) {
-    	if (isAiActive(ev)) {
-             new Thread(new SelectDragonMoveTask(this, ev), "AI-selectDragonMove").start();
-        }
-    }
-
-    //TODO is there faster game copying without snapshot? or without re-creating board and tile instances
-    protected Game copyGame(Object gameListener) {
-        Snapshot snapshot = new Snapshot(game);
-        Game copy = snapshot.asGame(game.getGameId());
-        copy.getEventBus().register(gameListener);
-        LoadGamePhase phase = new LoadGamePhase(copy, snapshot, getGameController());
-        phase.setSlots(new PlayerSlot[0]);
-        copy.getPhases().put(phase.getClass(), phase);
-        copy.setPhase(phase);
-        phase.startGame(false);
-        return copy;
-    }
 }

@@ -3,20 +3,24 @@ package com.jcloisterzone.wsio.message;
 import com.jcloisterzone.wsio.WsMessageCommand;
 
 @WsMessageCommand("LEAVE_SLOT")
-public class LeaveSlotMessage implements WsInGameMessage {
+public class LeaveSlotMessage extends AbstractWsMessage implements WsInGameMessage {
 
     private String gameId;
     private int number;
 
-    public LeaveSlotMessage(String gameId, int number) {
-        this.gameId = gameId;
+    public LeaveSlotMessage() {
+    }
+
+    public LeaveSlotMessage(int number) {
         this.number = number;
     }
 
+    @Override
     public String getGameId() {
         return gameId;
     }
 
+    @Override
     public void setGameId(String gameId) {
         this.gameId = gameId;
     }

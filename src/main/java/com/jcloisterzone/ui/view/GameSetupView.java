@@ -9,14 +9,10 @@ import java.awt.event.KeyEvent;
 
 import javax.swing.JPanel;
 
-import net.miginfocom.swing.MigLayout;
-
 import com.google.common.eventbus.Subscribe;
 import com.jcloisterzone.event.ClientListChangedEvent;
-import com.jcloisterzone.event.GameStateChangeEvent;
 import com.jcloisterzone.game.Game;
 import com.jcloisterzone.game.PlayerSlot;
-import com.jcloisterzone.game.phase.CreateGamePhase;
 import com.jcloisterzone.ui.Client;
 import com.jcloisterzone.ui.GameController;
 import com.jcloisterzone.ui.MenuBar;
@@ -27,12 +23,15 @@ import com.jcloisterzone.ui.panel.BackgroundPanel;
 import com.jcloisterzone.ui.panel.ConnectedClientsPanel;
 import com.jcloisterzone.ui.panel.CreateGamePanel;
 
-public class GameSetupView extends AbstractUiView {
+import net.miginfocom.swing.MigLayout;
+
+public class GameSetupView extends AbstractUiView implements GameChatView {
 
     private final GameController gc;
     private final Game game;
     private final boolean mutableSlots;
 
+    private BackgroundPanel root;
     private ChatPanel chatPanel;
     private CreateGamePanel createGamePanel;
     private ConnectedClientsPanel connectedClientsPanel;
@@ -53,15 +52,17 @@ public class GameSetupView extends AbstractUiView {
     }
 
     @Override
-    public void show(Container pane, Object ctx) {
+    public void show(Container pane) {
         Game game = gc.getGame();
-        CreateGamePhase phase = (CreateGamePhase)game.getPhase();
 
-        BackgroundPanel bg = new BackgroundPanel();
-        bg.setLayout(new BorderLayout());
-        pane.add(bg);
+        root = new BackgroundPanel();
+        root.setLayout(new BorderLayout());
+        pane.add(root);
 
-        showCreateGamePanel(bg, mutableSlots, phase.getPlayerSlots());
+        showCreateGamePanel(root, mutableSlots, game.getPlayerSlots());
+
+        gc.register(this);
+        registerChildComponents(root, gc);
 
         MenuBar menu = client.getJMenuBar();
         menu.setItemActionListener(MenuItem.LEAVE_GAME, new ActionListener() {
@@ -71,6 +72,8 @@ public class GameSetupView extends AbstractUiView {
             }
         });
         menu.setItemEnabled(MenuItem.LEAVE_GAME, true);
+
+        createGamePanel.updateSupportedExpansions(game.mergeSupportedExpansions());
     }
 
     private void showCreateGamePanel(Container panel, boolean mutableSlots, PlayerSlot[] slots) {
@@ -82,7 +85,6 @@ public class GameSetupView extends AbstractUiView {
 
         panel.add(envelope, BorderLayout.CENTER);
 
-
         JPanel chatColumn = new JPanel();
         chatColumn.setOpaque(false);
         chatColumn.setLayout(new MigLayout("ins 0, gap 0 10", "[grow]", "[60px][grow]"));
@@ -93,15 +95,11 @@ public class GameSetupView extends AbstractUiView {
 
         chatPanel = new GameChatPanel(client, game);
         chatColumn.add(chatPanel, "cell 0 1, grow");
-
-        gc.register(createGamePanel);
-        gc.register(chatPanel);
-        gc.register(this);
     }
 
     @Override
-    public boolean requestHide(UiView nextView, Object nextCtx) {
-        if (nextCtx != this) {
+    public boolean requestHide(UiView nextView) {
+        if (!(nextView instanceof GameView)) {
             return client.closeGame();
         } else {
             return true;
@@ -109,10 +107,9 @@ public class GameSetupView extends AbstractUiView {
     }
 
     @Override
-    public void hide(UiView nextView, Object nextCtx) {
-        gc.unregister(createGamePanel);
-        gc.unregister(chatPanel);
+    public void hide(UiView nextView) {
         gc.unregister(this);
+        unregisterChildComponents(root, gc);
 
         MenuBar menu = client.getJMenuBar();
         menu.setItemEnabled(MenuItem.LEAVE_GAME, false);
@@ -132,16 +129,6 @@ public class GameSetupView extends AbstractUiView {
     }
 
     @Subscribe
-    public void started(GameStateChangeEvent ev) {
-        if (GameStateChangeEvent.GAME_START == ev.getType()) {
-            GameView view = new GameView(client, gc);
-            view.setChatPanel(chatPanel);
-            view.setSnapshot(ev.getSnapshot());
-            client.mountView(view, this);
-        }
-    }
-
-    @Subscribe
     public void clientListChanged(ClientListChangedEvent ev) {
         connectedClientsPanel.updateClients(ev.getClients());
     }
@@ -149,5 +136,10 @@ public class GameSetupView extends AbstractUiView {
     @Override
     public void onWebsocketClose(int code, String reason, boolean remote) {
         client.mountView(new StartView(client));
+    }
+
+    @Override
+    public ChatPanel getChatPanel() {
+        return chatPanel;
     }
 }

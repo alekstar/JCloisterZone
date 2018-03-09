@@ -1,28 +1,31 @@
 package com.jcloisterzone.ui.resources;
 
 import java.awt.Image;
-import java.util.Map;
-import java.util.Set;
 
 import com.jcloisterzone.board.Location;
+import com.jcloisterzone.board.Rotation;
 import com.jcloisterzone.board.Tile;
-import com.jcloisterzone.figure.Meeple;
 import com.jcloisterzone.ui.ImmutablePoint;
 
 public interface ResourceManager {
 
-     Image getTileImage(Tile tile);
-     Image getAbbeyImage();
+    static final int NORMALIZED_SIZE = 1000;
+    static final int POINT_NORMALIZED_SIZE = 100; // TODO merge with NORMALIZED_SIZE
 
-     //generic image, path is without extension
-     Image getImage(String path);
-     Image getLayeredImage(LayeredImageDescriptor lid);
+    TileImage getTileImage(String tileId, Rotation rot); //use custom rotation
 
-     Map<Location, FeatureArea> getFeatureAreas(Tile tile, int size, Set<Location> locations);
-     Map<Location, FeatureArea> getBarnTileAreas(Tile tile, int size, Set<Location> corners);
-     Map<Location, FeatureArea> getBridgeAreas(Tile tile, int size, Set<Location> locations);
+    //generic image, path is without extension
+    Image getImage(String path);
+    Image getLayeredImage(LayeredImageDescriptor lid);
 
-     //TODO change to 1000x1000
-     /** returns meeple offset on tile, normalized to 100x100 tile size */
-     ImmutablePoint getMeeplePlacement(Tile tile, Class<? extends Meeple> type, Location loc);
+    FeatureArea getFeatureArea(Tile tile, Rotation rot, Location loc);
+    FeatureArea getBarnArea();
+    FeatureArea getBridgeArea(Location bridgeLocation);
+
+    //TODO change to 1000x1000
+    /** returns meeple offset on tile, normalized to 100x100 tile size */
+    ImmutablePoint getMeeplePlacement(Tile tile, Rotation rot, Location loc);
+    ImmutablePoint getBarnPlacement();
+
+    void reload();
 }

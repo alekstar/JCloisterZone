@@ -1,42 +1,35 @@
 package com.jcloisterzone.action;
 
-import java.awt.Image;
-
-import com.jcloisterzone.Player;
 import com.jcloisterzone.board.pointer.FeaturePointer;
-import com.jcloisterzone.wsio.RmiProxy;
+import com.jcloisterzone.game.Token;
+import com.jcloisterzone.ui.annotations.LinkedGridLayer;
+import com.jcloisterzone.ui.annotations.LinkedImage;
+import com.jcloisterzone.ui.grid.layer.FeatureAreaLayer;
+import com.jcloisterzone.wsio.message.PlaceTokenMessage;
+import com.jcloisterzone.wsio.message.WsInGameMessage;
 
-public class TunnelAction extends SelectFeatureAction {
+import io.vavr.collection.Set;
 
-    private final boolean secondTunnelPiece;
 
-    public TunnelAction(boolean secondTunnelPiece) {
-        super("tunnel");
-        this.secondTunnelPiece = secondTunnelPiece;
+@LinkedImage("actions/tunnel")
+@LinkedGridLayer(FeatureAreaLayer.class)
+public class TunnelAction extends AbstractPlayerAction<FeaturePointer> implements SelectFeatureAction {
+
+    private final Token token;
+
+    public TunnelAction(Set<FeaturePointer> options, Token token) {
+        super(options);
+        assert token.isTunnel();
+        this.token = token;
+    }
+
+    public Token getToken() {
+        return token;
     }
 
     @Override
-    public Image getImage(Player player, boolean active) {
-        if (active && isSecondTunnelPiece()) {
-            return getImage(player.getColors().getTunnelBColor());
-        } else {
-            return super.getImage(player, active);
-        }
-    }
-
-    public boolean isSecondTunnelPiece() {
-        return secondTunnelPiece;
-    }
-
-    @Override
-    public void perform(RmiProxy server, FeaturePointer bp) {
-        server.placeTunnelPiece(bp, secondTunnelPiece);
-
-    }
-
-    @Override
-    protected int getSortOrder() {
-        return secondTunnelPiece ? 41 : 40;
+    public WsInGameMessage select(FeaturePointer ptr) {
+        return new PlaceTokenMessage(token, ptr);
     }
 
     @Override

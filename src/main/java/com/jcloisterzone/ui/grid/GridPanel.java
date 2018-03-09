@@ -6,6 +6,7 @@ import java.awt.Cursor;
 import java.awt.Font;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -23,37 +24,44 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.event.MouseInputListener;
 
-import net.miginfocom.swing.MigLayout;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import org.w3c.dom.Element;
-import org.w3c.dom.NodeList;
-
+import com.google.common.eventbus.Subscribe;
+import com.jcloisterzone.Expansion;
 import com.jcloisterzone.Player;
-import com.jcloisterzone.XMLUtils;
-import com.jcloisterzone.board.Position;
+import com.jcloisterzone.action.PlayerAction;
 import com.jcloisterzone.board.Rotation;
-import com.jcloisterzone.board.Tile;
 import com.jcloisterzone.config.ConfigLoader;
-import com.jcloisterzone.event.TileEvent;
-import com.jcloisterzone.game.Snapshot;
+import com.jcloisterzone.event.GameChangedEvent;
+import com.jcloisterzone.game.state.GameState;
+import com.jcloisterzone.plugin.Plugin;
 import com.jcloisterzone.ui.Client;
+import com.jcloisterzone.ui.EventProxyUiController;
 import com.jcloisterzone.ui.GameController;
+import com.jcloisterzone.ui.UIEventListener;
 import com.jcloisterzone.ui.UiUtils;
+import com.jcloisterzone.ui.annotations.LinkedPanel;
 import com.jcloisterzone.ui.controls.ControlPanel;
 import com.jcloisterzone.ui.controls.chat.ChatPanel;
-import com.jcloisterzone.ui.grid.layer.AbbeyPlacementLayer;
+import com.jcloisterzone.ui.grid.actionpanel.ActionInteractionPanel;
 import com.jcloisterzone.ui.grid.layer.AbstractAreaLayer;
-import com.jcloisterzone.ui.grid.layer.AbstractTilePlacementLayer;
+import com.jcloisterzone.ui.grid.layer.EventsOverlayLayer;
 import com.jcloisterzone.ui.grid.layer.TileActionLayer;
 import com.jcloisterzone.ui.view.GameView;
 
-public class GridPanel extends JPanel implements ForwardBackwardListener {
+import net.miginfocom.swing.MigLayout;
+
+public class GridPanel extends JPanel implements ForwardBackwardListener, UIEventListener {
+
+    protected final transient Logger logger = LoggerFactory.getLogger(getClass());
 
     private static final long serialVersionUID = -7013723613801929324L;
 
-    public static int INITIAL_SQUARE_SIZE = 120;
+    public static int INITIAL_TILE_WIDTH = 120;
 
     private static final Color MESSAGE_ERROR = new Color(186, 61, 61, 245);
+    private static final Color MESSAGE_INFO = new Color(79, 146, 255, 245);
     private static final Color MESSAGE_HINT = new Color(147, 146, 155, 245);
 
     final Client client;
@@ -62,13 +70,15 @@ public class GridPanel extends JPanel implements ForwardBackwardListener {
 
     private final ControlPanel controlPanel;
     private final ChatPanel chatPanel;
-    private BazaarPanel bazaarPanel;
-    private SelectMageWitchRemovalPanel mageWitchPanel;
+    private ActionInteractionPanel<?> actionInteractionPanel;
+    private final GameEventsPanel eventsPanel;
+    private boolean isEventsPanelVisible;
 
     /** current board size */
     private int left, right, top, bottom;
-    private int squareSize;
+    private int tileWidth, tileHeight;
     private Rotation boardRotation = Rotation.R0;
+    private double meepleScaleFactor = 1.0;
 
     //focus
     private int offsetX, offsetY;
@@ -77,8 +87,9 @@ public class GridPanel extends JPanel implements ForwardBackwardListener {
 
     private List<GridLayer> layers = new ArrayList<GridLayer>();
     private ErrorMessagePanel errorMsg;
+    private String errorCode;
 
-    public GridPanel(Client client, GameView gameView, ControlPanel controlPanel, ChatPanel chatPanel, Snapshot snapshot) {
+    public GridPanel(Client client, GameView gameView, ControlPanel controlPanel, ChatPanel chatPanel) {
         setDoubleBuffered(true);
         setOpaque(false);
         setLayout(new MigLayout());
@@ -89,7 +100,7 @@ public class GridPanel extends JPanel implements ForwardBackwardListener {
         this.controlPanel = controlPanel;
 
         boolean networkGame = "true".equals(System.getProperty("forceChat"));
-        for (Player p : gc.getGame().getAllPlayers()) {
+        for (Player p : gc.getGame().getState().getPlayers().getPlayers()) {
             if (!p.getSlot().isOwn()) {
                 networkGame = true;
                 break;
@@ -97,40 +108,90 @@ public class GridPanel extends JPanel implements ForwardBackwardListener {
         }
         this.chatPanel = networkGame ? chatPanel : null;
 
-        squareSize = INITIAL_SQUARE_SIZE;
-
-        if (snapshot != null) {
-            NodeList nl = snapshot.getTileElements();
-            for (int i = 0; i < nl.getLength(); i++) {
-                Element el = (Element) nl.item(i);
-                Position pos = XMLUtils.extractPosition(el);
-                if (pos.x <= left) left = pos.x - 1;
-                if (pos.x >= right) right = pos.x + 1;
-                if (pos.y <= top) top = pos.y - 1;
-                if (pos.y >= bottom) bottom = pos.y + 1;
-            }
+        Plugin rp = getBaseExpansionPlugin();
+        if (rp != null) {
+            //sqrt -> geometric average between width and height
+            meepleScaleFactor = Math.sqrt(rp.getImageSizeRatio());
         }
+
+        updateTileSize((int)(INITIAL_TILE_WIDTH / rp.getImageSizeRatio()));
+
         registerMouseListeners();
         add(controlPanel, "pos (100%-255) 0 100% 100%");
         if (chatPanel != null) {
             chatPanel.initHidingMode();
             add(chatPanel, "pos 0 0 250 100%");
         }
+
+        eventsPanel = new GameEventsPanel(gc);
+        //client.is
+        add(eventsPanel, "pos 0 0 (100%-242) 36");
+        setComponentZOrder(eventsPanel, chatPanel == null ? 1 : 2);
     }
 
+    @Override
+    public void registerTo(EventProxyUiController<?> gc) {
+        UIEventListener.super.registerTo(gc);
+        for (GridLayer layer : layers) {
+            if (layer instanceof UIEventListener) {
+                ((UIEventListener)layer).registerTo(gc);
+            }
+        }
+    }
+
+    @Override
+    public void unregisterFrom(EventProxyUiController<?> gc) {
+        UIEventListener.super.unregisterFrom(gc);
+        for (GridLayer layer : layers) {
+            if (layer instanceof UIEventListener) {
+                ((UIEventListener)layer).unregisterFrom(gc);
+            }
+        }
+    }
+
+    public double getMeepleScaleFactor() {
+        return meepleScaleFactor;
+    }
+
+    private Plugin getBaseExpansionPlugin() {
+        for (Plugin plugin : client.getPlugins()) {
+            if (!plugin.isEnabled()) continue;
+            if (plugin.isExpansionSupported(Expansion.BASIC)) {
+                return plugin;
+            }
+        }
+        return null;
+    }
+
+    private void updateTileSize(int baseWidth) {
+        Plugin plugin = getBaseExpansionPlugin();
+        double ratio = plugin == null ? 1.0 : plugin.getImageSizeRatio();
+        tileWidth = baseWidth;
+        tileHeight = (int)(ratio * baseWidth);
+    }
+
+    public void toggleGameEvents(boolean visible) {
+        isEventsPanelVisible = visible;
+        eventsPanel.setVisible(visible);
+        if (visible) {
+            showLayer(EventsOverlayLayer.class);
+        } else {
+            hideLayer(EventsOverlayLayer.class);
+        }
+    }
 
     @Override
     public void forward() {
-        if (bazaarPanel != null) {
-            bazaarPanel.forward();
+        if (actionInteractionPanel instanceof ForwardBackwardListener) {
+            ((ForwardBackwardListener) actionInteractionPanel).forward();
         }
         controlPanel.getActionPanel().forward();
     }
 
     @Override
     public void backward() {
-        if (bazaarPanel != null) {
-            bazaarPanel.backward();
+        if (actionInteractionPanel instanceof ForwardBackwardListener) {
+            ((ForwardBackwardListener) actionInteractionPanel).backward();
         }
         controlPanel.getActionPanel().backward();
     }
@@ -139,11 +200,12 @@ public class GridPanel extends JPanel implements ForwardBackwardListener {
         int l = getComponents().length;
         for (int i = l-1; i > 0; i--) {
             Component child = getComponent(i);
-            if (child.getClass().isAnnotationPresent(InteractionPanel.class)) {
+            if (child == actionInteractionPanel) {
                 remove(i);
+                break;
             }
         }
-        bazaarPanel = null;
+        actionInteractionPanel = null;
     }
 
     class GridPanelMouseListener extends MouseAdapter implements MouseInputListener {
@@ -154,7 +216,7 @@ public class GridPanel extends JPanel implements ForwardBackwardListener {
         private void moveTo(MouseEvent e) {
             int clickX = e.getX()-offsetX;
             int clickY = e.getY()-offsetY;
-            moveCenterToAnimated(clickX/(double)squareSize, clickY/(double)squareSize);
+            moveCenterToAnimated(clickX/(double)tileWidth, clickY/(double)tileHeight);
         }
 
         @Override
@@ -196,8 +258,8 @@ public class GridPanel extends JPanel implements ForwardBackwardListener {
             int dx = e.getX() - dragSource.getX();
             int dy = e.getY() - dragSource.getY();
             //relative values
-            double rdx = dx/(double)squareSize;
-            double rdy = dy/(double)squareSize;
+            double rdx = dx/(double)tileWidth;
+            double rdy = dy/(double)tileHeight;
 
             moveCenterTo(sourceCx-rdx, sourceCy-rdy);
         }
@@ -215,18 +277,17 @@ public class GridPanel extends JPanel implements ForwardBackwardListener {
         });
     }
 
-    public Tile getTile(Position p) {
-        return gc.getGame().getBoard().get(p);
-    }
-
     public Client getClient() {
         return client;
     }
 
-    public int getSquareSize() {
-        return squareSize;
+    public int getTileWidth() {
+        return tileWidth;
     }
 
+    public int getTileHeight() {
+        return tileHeight;
+    }
 
     public int getOffsetX() {
         return offsetX;
@@ -236,16 +297,12 @@ public class GridPanel extends JPanel implements ForwardBackwardListener {
         return offsetY;
     }
 
-    public int getSquareWidth() {
-        return right - left + 1;
-    }
-
-    public int getSquareHeight() {
-        return bottom - top + 1;
-    }
-
     public ChatPanel getChatPanel() {
         return chatPanel;
+    }
+
+    public GameEventsPanel getEventsPanel() {
+        return eventsPanel;
     }
 
 //    public String getErrorMessage() {
@@ -266,31 +323,48 @@ public class GridPanel extends JPanel implements ForwardBackwardListener {
 //        this.hintMessage = hintMessage;
 //    }
 
+    @Subscribe
+    public void handleGameChanged(GameChangedEvent ev) {
+        GameState state = ev.getCurrentState();
+        PlayerAction<?> first = state.getAction();
 
-    public BazaarPanel getBazaarPanel() {
-        return bazaarPanel;
+        LinkedPanel panelAnnotation = first == null ? null : first.getClass().getAnnotation(LinkedPanel.class);
+        if (panelAnnotation == null) {
+            removeInteractionPanels();
+        } else {
+            Class<? extends ActionInteractionPanel<?>> cls = panelAnnotation.value();
+            if (!cls.isInstance(actionInteractionPanel)) {
+                if (actionInteractionPanel != null) {
+                    removeInteractionPanels();
+                }
+                try {
+                    actionInteractionPanel = cls.getConstructor(Client.class, GameController.class).newInstance(client, gc);
+                    add(actionInteractionPanel, "pos (100%-525) 0 (100%-275) 100%"); //TODO more robust layouting
+                } catch (Exception e) {
+                    logger.error(e.getMessage(), e);
+                }
+            }
+            actionInteractionPanel.setGameState(state);
+            revalidate();
+        }
+
+        if (ev.hasPlacedTilesChanged()) {
+            Rectangle rect = state.getBoardBounds();
+            left = rect.x;
+            right = rect.x + rect.width;
+            top = rect.y;
+            bottom = rect.y + rect.height;
+        }
+
+        eventsPanel.handleGameChanged(ev);
+
+        repaint();
     }
-
-
-    public void setBazaarPanel(BazaarPanel bazaarPanel) {
-        this.bazaarPanel = bazaarPanel;
-    }
-
-
-    public SelectMageWitchRemovalPanel getMageWitchPanel() {
-        return mageWitchPanel;
-    }
-
-
-    public void setMageWitchPanel(SelectMageWitchRemovalPanel mageWitchPanel) {
-        this.mageWitchPanel = mageWitchPanel;
-    }
-
 
     public void moveCenter(int xSteps, int ySteps) {
         //step should be 30px
-        double dx = xSteps * 30.0f / getSquareSize();
-        double dy = ySteps * 30.0f / getSquareSize();
+        double dx = xSteps * 30.0f / tileWidth;
+        double dy = ySteps * 30.0f / tileHeight;
         moveCenterTo(cx + dx, cy + dy);
     }
 
@@ -314,19 +388,19 @@ public class GridPanel extends JPanel implements ForwardBackwardListener {
     }
 
     public void zoom(double steps) {
-        int size = (int) (squareSize * Math.pow(1.3, steps));
+        int size = (int) (tileWidth * Math.pow(1.3, steps));
         if (size < 25) size = 25;
         if (size > 300) size = 300;
         setZoomSize(size);
     }
 
     private void setZoomSize(int size) {
-        if (size == squareSize) return;
-        squareSize = size;
+        if (size == tileWidth) return;
 
+        updateTileSize(size);
         synchronized (layers) {
             for (GridLayer layer : layers) {
-                layer.zoomChanged(squareSize);
+                layer.zoomChanged(tileWidth);
             }
         }
         moveCenterTo(cx, cy); //re-check center constraints
@@ -361,13 +435,15 @@ public class GridPanel extends JPanel implements ForwardBackwardListener {
     }
 
     public void showLayer(GridLayer layer) {
-        layer.onShow();
-        repaint();
+        if (!layer.isVisible()) {
+            layer.onShow();
+            repaint();
+        }
     }
 
     public void showLayer(Class<? extends GridLayer> layerType) {
         for (GridLayer layer : layers) {
-            if (layerType.isInstance(layer)) {
+            if (layerType.isInstance(layer) && !layer.isVisible()) {
                 layer.onShow();
             }
         }
@@ -375,13 +451,15 @@ public class GridPanel extends JPanel implements ForwardBackwardListener {
     }
 
     public void hideLayer(GridLayer layer) {
-        layer.onHide();
-        repaint();
+        if (layer.isVisible()) {
+            layer.onHide();
+            repaint();
+        }
     }
 
     public void hideLayer(Class<? extends GridLayer> layerType) {
         for (GridLayer layer : layers) {
-            if (layerType.isInstance(layer)) {
+            if (layerType.isInstance(layer) && layer.isVisible()) {
                 layer.onHide();
             }
         }
@@ -410,43 +488,54 @@ public class GridPanel extends JPanel implements ForwardBackwardListener {
     public void clearActionDecorations() {
         hideLayer(AbstractAreaLayer.class);
         hideLayer(TileActionLayer.class);
-        hideLayer(AbbeyPlacementLayer.class);
+        //hideLayer(AbbeyPlacementLayer.class);
     }
 
-    public void showErrorMessage(String errorMessage) {
-    	if (errorMsg != null) {
-    		remove(errorMsg);
-    	}
-    	errorMsg = new ErrorMessagePanel(errorMessage);
-    	errorMsg.setOpaque(true);
+    public void showInfoMessage(String errorMessage, String errCode) {
+        showMessage(MESSAGE_INFO, errorMessage, errCode);
+    }
+
+    public void showErrorMessage(String errorMessage, String errCode) {
+        showMessage(MESSAGE_ERROR, errorMessage, errCode);
+    }
+
+
+    private void showMessage(Color color, String errorMessage, String errCode) {
+        if (errorMsg != null) {
+            remove(errorMsg);
+        }
+        this.errorCode = errCode;
+        errorMsg = new ErrorMessagePanel(color, errorMessage);
+        errorMsg.setOpaque(true);
         add(errorMsg, "pos 0 0 (100%-242) 30");
+        setComponentZOrder(errorMsg, 1);
         revalidate();
         repaint();
     }
 
-    // delegated UI methods
-
-    public void tileEvent(TileEvent ev) {
-        hideLayer(AbstractTilePlacementLayer.class);
-
-        if (ev.getType() == TileEvent.PLACEMENT) {
-            Position p = ev.getPosition();
-
-            if (p.x == left) --left;
-            if (p.x == right) ++right;
-            if (p.y == top) --top;
-            if (p.y == bottom) ++bottom;
-
+    public void hideErrorMessage(String errorCode) {
+        if (errorCode != null) {
+            if (!errorCode.equals(this.errorCode)) {
+                return;
+            }
         }
-        repaint();
+
+        if (errorMsg != null) {
+            remove(errorMsg);
+            errorMsg = null;
+            this.errorCode = null;
+            repaint();
+        }
     }
 
+    // delegated UI methods
+
     private int calculateCenterX() {
-        return (getWidth() - ControlPanel.PANEL_WIDTH - squareSize)/2;
+        return (getWidth() - ControlPanel.PANEL_WIDTH - tileWidth)/2;
     }
 
     private int calculateCenterY() {
-        return (getHeight() - squareSize)/2;
+        return (getHeight() - tileHeight)/2;
     }
 
 //    //TODO remove profile code
@@ -459,7 +548,7 @@ public class GridPanel extends JPanel implements ForwardBackwardListener {
 
 
     public Point2D getRelativePoint(Point2D point) {
-        AffineTransform af = boardRotation.inverse().getAffineTransform(getSquareSize());
+        AffineTransform af = boardRotation.inverse().getAffineTransform(tileWidth, tileHeight);
         af.translate(-offsetX, -offsetY);
         return af.transform(point, null);
     }
@@ -473,14 +562,12 @@ public class GridPanel extends JPanel implements ForwardBackwardListener {
 //        System.out.println("------------------------");
 //        ts = last = System.currentTimeMillis();
 
-        int w = getWidth();
-
         AffineTransform origTransform = g2.getTransform();
-        offsetX = calculateCenterX() - (int)(cx * squareSize);
-        offsetY = calculateCenterY() - (int)(cy * squareSize);
+        offsetX = calculateCenterX() - (int)(cx * tileWidth);
+        offsetY = calculateCenterY() - (int)(cy * tileHeight);
         g2.translate(offsetX, offsetY);
         if (boardRotation != Rotation.R0) {
-            AffineTransform af = boardRotation.getAffineTransform(getSquareSize());
+            AffineTransform af = boardRotation.getAffineTransform(tileWidth, tileHeight);
             g2.transform(af);
         }
 
@@ -530,18 +617,18 @@ public class GridPanel extends JPanel implements ForwardBackwardListener {
         //Layers use squareSize for painting, make sure the squaresize (eg: zoom) is set
         //TODO is this dangerous if GridPanel is rendered while print screening?
 
-        int orig = squareSize;
-        squareSize = screenshotScale;
+        int origWidth = tileWidth;
+        updateTileSize(screenshotScale);
         for (GridLayer layer : layers) {
             if (layer.isVisible()) {
                 //TODO calling zoomChanged can broke something, don't do it
                 layer.zoomChanged(screenshotScale);
                 layer.paint(graphics);
-                layer.zoomChanged(orig);
+                layer.zoomChanged(origWidth);
             }
         }
         //set it back
-        squareSize = orig;
+        updateTileSize(origWidth);
 
         //reset translation
         graphics.translate(-transX, -transY);
@@ -598,8 +685,8 @@ public class GridPanel extends JPanel implements ForwardBackwardListener {
 
     class ErrorMessagePanel extends JPanel {
 
-        public ErrorMessagePanel(String text) {
-            setBackground(MESSAGE_ERROR);
+        public ErrorMessagePanel(Color color, String text) {
+            setBackground(color);
             setLayout(new MigLayout("fill", "[]push[]"));
             JLabel label = new JLabel(text);
             label.setForeground(Color.WHITE);
@@ -609,14 +696,12 @@ public class GridPanel extends JPanel implements ForwardBackwardListener {
             icon.addMouseListener(new MouseAdapter() {
                 @Override
                 public void mouseClicked(MouseEvent e) {
-                    GridPanel.this.remove(ErrorMessagePanel.this);
-                    GridPanel.this.repaint();
+                    hideErrorMessage(null);
                 }
             });
             add(label);
             add(icon);
         }
-
     }
 
 }

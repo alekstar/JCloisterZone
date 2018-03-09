@@ -3,21 +3,31 @@ package com.jcloisterzone.wsio.message;
 import com.jcloisterzone.wsio.WsMessageCommand;
 
 @WsMessageCommand("GAME_OVER")
-public class GameOverMessage implements WsInGameMessage {
+public class GameOverMessage extends AbstractWsMessage implements WsInGameMessage, WsReplayableMessage {
 
-	private String gameId;
+    private String gameId;
+    private String messageId;
 
-    public GameOverMessage(String gameId) {
-        super();
+    public GameOverMessage() {
+    }
+
+    @Override
+    public String getGameId() {
+        return gameId;
+    }
+
+    @Override
+    public void setGameId(String gameId) {
         this.gameId = gameId;
     }
 
     @Override
-	public String getGameId() {
-        return gameId;
+    public String getMessageId() {
+        return messageId;
     }
 
-    public void setGameId(String gameId) {
-        this.gameId = gameId;
+    @Override
+    public void setMessageId(String messageId) {
+        this.messageId = messageId;
     }
 }

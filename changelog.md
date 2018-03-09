@@ -1,4 +1,162 @@
+
+
+
+
 # Version history
+
+## upcoming version
+
+* fixed Ferries + Tunnel: sometimes ferry can't be changed when road is extended through tunnel connection
+
+## 4.3.0
+ *2018-02-11*
+
+* Ferries (Mini #3) expansion
+* The Count, final scoring changed according to "Complete annotated rules" notes.
+  - followers can be moved from all quarters (not only from the Market to forms)
+  - players take turns
+    Question:
+        How does follower placement during the final scoring work?
+    Answer: 
+        In principle very similarly to the way it works during the game. The 'trigger' for the final scoring 
+        is the player who placed the last tile and so ended the game. Beginning with the player on the left 
+        of the 'trigger' player, each player redeploys one of his or her followers from 
+        Carcassonne to an appropriate feature [followers in castle can only be deployed 
+        to cities, and so on] on the board. Followers can also be redeployed to incomplete
+        roads, cities, cloisters, or farms, since these will also be scored at the end of the game.
+        This process continues until no player can redeploy any more players from Carcassonne. 
+        The Count still blocks the city quarter in which he is resident. Normally the player with 
+        the most followers in Carcassonne will be the one to redeploy the last figure. 
+* fix: road with bridge can remain not scored. This can happen when bridge was placed result of tile placement
+  on adjacent tile (and only when tile bridge is rotated once). Such bridge can also cause error during final scoring.
+* fix: gold was not awarded from cloister tile itself (but only from adjacent tiles)
+* fix: missing bid buttons when game is saved and loaded during bazaar auction 
+
+## 4.2.1
+*2018-02-05*
+
+* display info message when game is created with debug options (forced draw order). This is important 
+  for remote party because this option is part of game setup (since 4.x) and they are used by all participants.
+  And currently there was no change to recognize that game is regular.
+* fixed #255: Abbey and scoring road/city touching abbey with more then one side. Now feature is correctly finished. 
+* fixed #257: Farm hints display correct color for farms with barns.
+* fixed #258: Pig/Barn issue, when pig was deployed instead of barn.
+* fix: Barn and Market quarter:
+  followers for the City of C. can be deployed on farm when barn is placed 
+  or when barn farm is extended by another farm with followers 
+  score properly followers moved on barn farm just before final scoring
+* fix: some legal wagon moves were missing
+* fix: City of C. followers can be now redeployed also onto features closed by abbey.
+* fix: when moves from multiple City of C. quarters are available (eg legal move on cloister and road at 
+  one time) there was possibility that follower was moved from wrong quarter (eg. from blacksmith to cloister)
+* fix: builder double turn allowed wrongly add follower into City of C. after each turn part if opponent 
+  feature was scored during first part 
+* fix: restrict corn circles actions to followers only (instead of meeples)
+* fix: the rules that restrict the placement of cloisters next to already placed shrines also restrict the placement of abbeys.
+* fix: german monasteries and abbot related issues (portal allows placement next to abbot, crash when abbot in tower area)
+* fix: broken undo for loaded games
+* fix: don't offer AI unsupported expansion in create game panel after "Play again" is used
+* fix: preserve figure order in player panels
+
+## 4.1.1
+*2018-01-19*
+
+* underlying JavaWebsocket library reverted to version used in 3.x. 
+  Recent version seems to be unreliable and dropping messages 
+  sometimes. Which makes client out of sync and caused unpredictable bugs. 
+
+## 4.1.0
+*2017-12-25*
+
+* connection stability improvements - websocket connection revisited and fixed reconnect on lost connection issues
+* handle properly when single message is sent to server twice 
+* fix: captured meeple color in game events panel
+* fix: play again button
+
+## 4.0.2
+*2017-12-10*
+
+* fixed trade goods final scoring
+
+## 4.0.1
+*2017-12-05*
+
+* fixed Tunnel regression. Game crashes when playing with or without some colors
+  (to be exact, when you not take player slots from beginning)
+
+## 4.0.0
+*2017-12-04*
+
+* multiple undo steps are now supported (including eg. undoing paid ransom)
+* saved game format changed to JSON (and instead of game snapshot contains just action history)
+* event log added - game events are displayed on top of the window (use E key to hide/show)
+
+* added The Count expansion
+* added game event panel on top of window 
+* added Japanese translation (thx to Alexis Jeandeau)
+* multiple plugin folders can be specified in config (as relative or absolute paths)
+* plugins can contain java classes and register new expansions and capabilities
+* added "Carrcassone for 2" plugin (thx to Tom Hill)
+* catapult tiles moved to separate plugin, disabled by default
+  (with many other expansion these extra tiles are much less important) 
+* issue #63: experimental change: multiple tile sets of same expansion are allowed.
+  No UI is present but feature can be enabled by manual edit of preset in config file
+  (or by save game edit)
+* issue #223 - experimental change: capabilities and expansions are independent. Game can be
+  created with different set of capabilities then standard derived from expansion.
+  Eg. Princess and dragon tiles but without dragon figure. Or add big follower
+  to basic tiles (without inns & cathedrals tiles)
+  No UI for creation such game is present yet, but same as multiple sets
+  it can be achieved by manual edit of preset in config.yaml
+  (Such games can be normally played with remote players)
+* fixed definition for FE.RC tile (Festival) - city wasn't bind to farm (farm may score one city less sometimes) 
+
+
+### Current expansions changes
+
+#### Princess and Dragon
+
+PRINCESS_MUST_REMOVE_KNIGHT rule implemented in proper way: If enabled and there is option to remove princess no other action is allowed.
+
+#### Tower
+
+If players has several prisoners belonging to the other player during prisoners exchange,
+the owner may decide which prisoner should be returned.
+
+#### Bridges, Castles, and Bazaars
+
+* Bazaar auction is not triggered when tile is discarded.
+* When tile can place only with bridge, player is allowed to pass and let the tile to be discarded.
+* fix: When there is no legal placement for auctioned tile, tile is discarded and random tile is drawn instead.
+* Display bridge preview if bridge placement is mandatory (and bridge must be placed as part of tile placement).
+
+#### River
+
+Rule change: Lakes (River 1 lake and River 2 volcano lake) are drawn by player as common tile
+(changed according to New Carcassonne (C II) rules)
+
+#### Tunnel
+
+Added MORE_TUNNEL_TOKENS rule (each player has three token sets for 2 players game or two token sets for 3 player game)
+
+#### Russion promos
+
+Baba Yaga's hut is now not involved in shrine-cloister challenges (when played together with The Cult expansion)
+
+### Technical Notes
+
+* Grand rewrite in favor of functional programming and immutable data structure.
+* vavr.io library is awesome!
+
+## 3.4.3
+*2017-05-08*
+
+* MacOS: application title is again JCloisterZone
+* fixed: crash caused by two "Undo"s triggered in short period
+* fixed: Little Buildings (unable to place building)
+* fixed: WindRose points can be repeated by undo tile placement infinitely
+* fixed TO.CccC+ definition (shield on one Tower tile is properly counted)
+* experimental support for "rectangular" tiles - possibility to display 3d tiles projected as rectangle - currently no theme
 
 ## 3.4.2
 *2015-11-21*
@@ -124,7 +282,7 @@
 
 * bug reporting feature (in help menu)
 * fix: wagon issue (usually when playing against ai causing game freeze)
-* fix: wrong colors of chat nicknames
+* fix: wrong color of chat nicknames
 
 ## 3.0
 *2014-08-27*
@@ -171,7 +329,7 @@
 * volcano rule updated according to latest FAQs: no follower deployment except barn, fairy movement allowed, so removed CANNOT_PLACE_BUILDER_ON_VOLCANO custom rule
 * FARM_CITY_SCORED_ONCE custom rule removed - 2nd edition scoring is obsolete and may leads to confusion together with some expansions
 * builder can be placed on uncompleted feature only (makes no sense to places on just finshed feature and return immediatelly)
-* default player colors changed
+* default player color changed
 * chat is hidden in single player game
 * submit connect dialog with enter
 * connect dialog: last remote host is remembered
@@ -350,7 +508,7 @@ Remarkable points:
 ## 1.6.10
 *2011-03-17*
 
-* fix: 5/6 six players, color exception
+* fix: 5/6 six players, colors exception
 * backport from 2.0; mouse wheel scroll, scroll bar in control panel
 
 ## 1.6.9
@@ -397,7 +555,7 @@ Remarkable points:
 
 * beep notification is played also for dragon move
 * fixed: vagon move on cards from other expansions
-* fixed: black decoration on bright player color (e.g. yellow)
+* fixed: black decoration on bright player colors (e.g. yellow)
 * fixed: tower placement icon, correct display on "just placed" tile
 * fixed: proper meeple position on particular "strange" card from expansions.
 

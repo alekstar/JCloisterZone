@@ -3,30 +3,43 @@ package com.jcloisterzone.wsio.message;
 import com.jcloisterzone.wsio.WsMessageCommand;
 
 @WsMessageCommand("COMMIT")
-public class CommitMessage implements WsInGameMessage {
+public class CommitMessage extends AbstractWsMessage implements WsInGameMessage, WsReplayableMessage, WsSaltMeesage {
 
     private String gameId;
-    private long currentTime;
+    private String messageId;
+    private long salt;
 
 
-    public CommitMessage(String gameId) {
-        this.gameId = gameId;
-        this.currentTime = System.currentTimeMillis();
+    public CommitMessage() {
     }
 
+    @Override
     public String getGameId() {
         return gameId;
     }
 
+    @Override
     public void setGameId(String gameId) {
         this.gameId = gameId;
     }
 
-    public long getCurrentTime() {
-        return currentTime;
+    @Override
+    public String getMessageId() {
+        return messageId;
     }
 
-    public void setCurrentTime(long currentTime) {
-        this.currentTime = currentTime;
+    @Override
+    public void setMessageId(String messageId) {
+        this.messageId = messageId;
+    }
+
+    @Override
+    public long getSalt() {
+        return salt;
+    }
+
+    @Override
+    public void setSalt(long salt) {
+        this.salt = salt;
     }
 }

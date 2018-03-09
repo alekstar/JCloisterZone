@@ -3,11 +3,14 @@ package com.jcloisterzone.wsio.message;
 import com.jcloisterzone.wsio.WsMessageCommand;
 
 @WsMessageCommand("POST_CHAT")
-public class PostChatMessage implements WsInGameMessage, WsInChannelMessage {
+public class PostChatMessage extends AbstractWsMessage implements WsInGameMessage, WsInChannelMessage {
 
     private String gameId;
     private String channel;
     private String text;
+
+    public PostChatMessage() {
+    }
 
     public PostChatMessage(String text) {
         super();
@@ -15,10 +18,11 @@ public class PostChatMessage implements WsInGameMessage, WsInChannelMessage {
     }
 
     @Override
-	public String getGameId() {
+    public String getGameId() {
         return gameId;
     }
 
+    @Override
     public void setGameId(String gameId) {
         this.gameId = gameId;
     }
@@ -31,12 +35,13 @@ public class PostChatMessage implements WsInGameMessage, WsInChannelMessage {
         this.text = text;
     }
 
-	@Override
-	public String getChannel() {
-		return channel;
-	}
+    @Override
+    public String getChannel() {
+        return channel;
+    }
 
-	public void setChannel(String channel) {
-		this.channel = channel;
-	}
+    @Override
+    public void setChannel(String channel) {
+        this.channel = channel;
+    }
 }

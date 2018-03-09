@@ -2,10 +2,11 @@ package com.jcloisterzone.action;
 
 import com.jcloisterzone.board.Position;
 
-public abstract class SelectTileAction extends PlayerAction<Position> {
+import io.vavr.collection.Set;
 
-    public SelectTileAction(String name) {
-        super(name);
+public abstract class SelectTileAction extends AbstractPlayerAction<Position> {
+
+    public SelectTileAction(Set<Position> options) {
+        super(options);
     }
-
 }

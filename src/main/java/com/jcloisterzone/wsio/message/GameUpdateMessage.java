@@ -3,25 +3,29 @@ package com.jcloisterzone.wsio.message;
 import com.jcloisterzone.wsio.WsMessageCommand;
 
 @WsMessageCommand("GAME_UPDATE")
-public class GameUpdateMessage implements WsInChannelMessage {
+public class GameUpdateMessage extends AbstractWsMessage implements WsInChannelMessage {
 
-	private String channel;
-	private GameMessage game;
+    private String channel;
+    private GameMessage game;
 
-	@Override
-	public String getChannel() {
-		return channel;
-	}
+    public GameUpdateMessage() {
+    }
 
-	public void setChannel(String channel) {
-		this.channel = channel;
-	}
+    @Override
+    public String getChannel() {
+        return channel;
+    }
 
-	public GameMessage getGame() {
-		return game;
-	}
+    @Override
+    public void setChannel(String channel) {
+        this.channel = channel;
+    }
 
-	public void setGame(GameMessage game) {
-		this.game = game;
-	}
+    public GameMessage getGame() {
+        return game;
+    }
+
+    public void setGame(GameMessage game) {
+        this.game = game;
+    }
 }

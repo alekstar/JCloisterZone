@@ -1,9 +1,13 @@
 package com.jcloisterzone.ui.grid.layer;
 
+import static com.jcloisterzone.ui.resources.ResourceManager.NORMALIZED_SIZE;
+import static com.jcloisterzone.ui.resources.ResourceManager.POINT_NORMALIZED_SIZE;
+
 import java.awt.Color;
 import java.awt.Font;
 import java.awt.Graphics2D;
 import java.awt.Image;
+import java.awt.Insets;
 import java.awt.Point;
 import java.awt.event.MouseEvent;
 import java.awt.font.FontRenderContext;
@@ -14,22 +18,26 @@ import java.awt.geom.Rectangle2D;
 
 import javax.swing.event.MouseInputListener;
 
+import com.jcloisterzone.board.Location;
 import com.jcloisterzone.board.Position;
 import com.jcloisterzone.board.Rotation;
+import com.jcloisterzone.board.pointer.FeaturePointer;
+import com.jcloisterzone.feature.Feature;
 import com.jcloisterzone.game.Game;
+import com.jcloisterzone.game.state.GameState;
+import com.jcloisterzone.game.state.PlacedTile;
 import com.jcloisterzone.ui.Client;
 import com.jcloisterzone.ui.GameController;
 import com.jcloisterzone.ui.ImmutablePoint;
+import com.jcloisterzone.ui.UIEventListener;
 import com.jcloisterzone.ui.grid.DragInsensitiveMouseClickListener;
 import com.jcloisterzone.ui.grid.GridLayer;
-import com.jcloisterzone.ui.grid.GridMouseAdapter;
-import com.jcloisterzone.ui.grid.GridMouseListener;
 import com.jcloisterzone.ui.grid.GridPanel;
 import com.jcloisterzone.ui.resources.ConvenientResourceManager;
-import com.jcloisterzone.ui.resources.ResourceManager;
-import com.jcloisterzone.wsio.RmiProxy;
+import com.jcloisterzone.ui.resources.FeatureArea;
+import com.jcloisterzone.ui.resources.TileImage;
 
-public abstract class AbstractGridLayer implements GridLayer {
+public abstract class AbstractGridLayer implements GridLayer, UIEventListener {
 
     protected boolean visible;
     protected final GridPanel gridPanel;
@@ -66,28 +74,28 @@ public abstract class AbstractGridLayer implements GridLayer {
         }
     }
 
-    protected GridMouseAdapter createGridMouserAdapter(GridMouseListener listener) {
-        return new GridMouseAdapter(gridPanel, listener);
-    }
-
     @Override
     public boolean isVisible() {
         return visible;
     }
 
+    public void attachMouseInputListener(MouseInputListener mouseListener) {
+        assert this.mouseListener == null;
+        this.mouseListener = new DragInsensitiveMouseClickListener(mouseListener);
+        gridPanel.addMouseListener(this.mouseListener);
+        gridPanel.addMouseMotionListener(this.mouseListener);
+        triggerFakeMouseEvent();
+    }
+
     @Override
     public void onShow() {
+        assert !visible;
         visible = true;
-        if (this instanceof GridMouseListener) {
-            mouseListener = new DragInsensitiveMouseClickListener(createGridMouserAdapter((GridMouseListener) this));
-            gridPanel.addMouseListener(mouseListener);
-            gridPanel.addMouseMotionListener(mouseListener);
-            triggerFakeMouseEvent();
-        }
     }
 
     @Override
     public void onHide() {
+        assert visible;
         visible = false;
         if (mouseListener != null) {
             gridPanel.removeMouseMotionListener(mouseListener);
@@ -95,29 +103,58 @@ public abstract class AbstractGridLayer implements GridLayer {
             mouseListener = null;
         }
     }
-    public AffineTransform getAffineTransform(int scaleFrom, Position pos) {
-        return getAffineTransform(scaleFrom, pos, Rotation.R0);
+
+    public AffineTransform getAffineTransform(TileImage tileImage, Position pos) {
+        Insets offset = tileImage.getOffset();
+        Image img = tileImage.getImage();
+        int w = img.getWidth(null) - offset.left - offset.right;
+        int h = img.getHeight(null) - offset.top - offset.bottom;
+        return getAffineTransform(w, h, pos, offset);
+    }
+
+    public AffineTransform getAffineTransform(int fromWidth, int fromHeight, Position pos, Insets offset) {
+        AffineTransform t = getAffineTransform(fromWidth, fromHeight, pos, Rotation.R0);
+        t.concatenate(AffineTransform.getTranslateInstance(-offset.left, -offset.top));
+        return t;
+    }
+
+    public AffineTransform getAffineTransform(int fromWidth, int fromHeight, Position pos) {
+        return getAffineTransform(fromWidth, fromHeight, pos, Rotation.R0);
     }
 
     public AffineTransform getAffineTransform(Position pos) {
-        return AffineTransform.getTranslateInstance(pos.x * getSquareSize(), pos.y * getSquareSize());
+        return AffineTransform.getTranslateInstance(pos.x * getTileWidth(), pos.y * getTileHeight());
     }
 
     public AffineTransform getAffineTransform(Position pos, Rotation rotation) {
-        AffineTransform r =  rotation.getAffineTransform(getSquareSize());
+        AffineTransform r;
+        if (rotation == Rotation.R0 || rotation == Rotation.R180) {
+            r =  rotation.getAffineTransform(getTileWidth(), getTileHeight());
+        } else {
+            r =  rotation.getAffineTransform(getTileHeight(), getTileWidth());
+        }
         AffineTransform t =  AffineTransform.getTranslateInstance(getOffsetX(pos), getOffsetY(pos));
         t.concatenate(r);
         return t;
     }
 
-    public AffineTransform getAffineTransform(int scaleFrom, Position pos, Rotation rotation) {
-        double ratio =  getSquareSize() / (double) scaleFrom;
-        return getAffineTransform(scaleFrom, pos, rotation, ratio);
+    //called only with R0
+    @Deprecated
+    private AffineTransform getAffineTransform(int fromWidth, int fromHeight, Position pos, Rotation rotation) {
+        double ratioX, ratioY;
+        if (rotation == Rotation.R0 || rotation == Rotation.R180) {
+            ratioX =  getTileWidth() / (double) fromWidth;
+            ratioY =  getTileHeight() / (double) fromHeight;
+        } else {
+            ratioX =  getTileHeight() / (double) fromWidth;
+            ratioY =  getTileWidth() / (double) fromHeight;
+        }
+        return getAffineTransform(pos, rotation, ratioX, ratioY);
     }
 
-    public AffineTransform getAffineTransform(int scaleFrom, Position pos, Rotation rotation, double ratio) {
+    public AffineTransform getAffineTransform(Position pos, Rotation rotation, double ratioX, double ratioY) {
         AffineTransform t = getAffineTransform(pos, rotation);
-        AffineTransform scale =  AffineTransform.getScaleInstance(ratio, ratio);
+        AffineTransform scale =  AffineTransform.getScaleInstance(ratioX, ratioY);
         t.concatenate(scale);
         return t;
     }
@@ -126,7 +163,7 @@ public abstract class AbstractGridLayer implements GridLayer {
         int x = getOffsetX(pos);
         int y = getOffsetY(pos);
         AffineTransform at = AffineTransform.getTranslateInstance(x, y);
-        at.concatenate(gridPanel.getBoardRotation().inverse().getAffineTransform(getSquareSize()));
+        at.concatenate(gridPanel.getBoardRotation().inverse().getAffineTransform(getTileWidth(), getTileHeight()));
         return at;
     }
 
@@ -138,15 +175,38 @@ public abstract class AbstractGridLayer implements GridLayer {
     }
 
     public int getOffsetX(Position pos) {
-        return getSquareSize() * pos.x;
+        return getTileWidth() * pos.x;
     }
 
     public int getOffsetY(Position pos) {
-        return getSquareSize() * pos.y;
+        return getTileHeight() * pos.y;
     }
 
-    public int getSquareSize() {
-        return gridPanel.getSquareSize();
+    public AffineTransform getZoomScale() {
+        //TODO move imple on gridPanel with caching
+        double ratioX = gridPanel.getTileWidth() / (double)NORMALIZED_SIZE;
+        //double ratioY = gridPanel.getTileHeight() / (double)ResourceManager.NORMALIZED_SIZE / getImageSizeRatio();
+        // TODO ignoring image image size ratio
+        double ratioY = gridPanel.getTileHeight() / (double)NORMALIZED_SIZE;
+        return AffineTransform.getScaleInstance(ratioX, ratioY);
+    }
+
+    @Deprecated
+    public AffineTransform getPointZoomScale() {
+        //TODO move imple on gridPanel with caching
+        double ratioX = gridPanel.getTileWidth() / (double)POINT_NORMALIZED_SIZE;
+        //double ratioY = gridPanel.getTileHeight() / (double)ResourceManager.NORMALIZED_SIZE / getImageSizeRatio();
+        // TODO ignoring image image size ratio
+        double ratioY = gridPanel.getTileHeight() / (double)POINT_NORMALIZED_SIZE;
+        return AffineTransform.getScaleInstance(ratioX, ratioY);
+    }
+
+    public int getTileWidth() {
+        return gridPanel.getTileWidth();
+    }
+
+    public int getTileHeight() {
+        return gridPanel.getTileHeight();
     }
 
     protected Client getClient() {
@@ -157,18 +217,16 @@ public abstract class AbstractGridLayer implements GridLayer {
         return gc.getGame();
     }
 
-    protected RmiProxy getRmiProxy() {
-        return gc.getRmiProxy();
-    }
-
+    @Deprecated //TODO use absolute coordinates instead
     protected Area transformArea(Area area, Position pos) {
         return area.createTransformedArea(getAffineTransform(pos));
     }
 
     // LEGACY CODE - TODO REFACTOR
 
+    @Deprecated
     private int scale(int x) {
-        return (int) (getSquareSize() * (x / 100.0));
+        return (int) (getTileWidth() * (x / 100.0));
     }
 
     @Deprecated
@@ -177,14 +235,16 @@ public abstract class AbstractGridLayer implements GridLayer {
         return new Font(null, Font.BOLD, realSize);
     }
 
+    // TODO don't use pos arg, use abs coords instead
     public void drawAntialiasedTextCentered(Graphics2D g2, String text, int fontSize, Position pos, ImmutablePoint centerNoScaled, Color fgColor, Color bgColor) {
         //gridPanel.getBoardRotation().
-        ImmutablePoint center = centerNoScaled.scale(getSquareSize());
+        ImmutablePoint center = centerNoScaled.scale(getTileWidth(), getTileHeight());
         drawAntialiasedTextCenteredNoScale(g2, text, fontSize, pos, center, fgColor, bgColor);
     }
 
 
-    //TODO misleading name - is centered around point and scaled font but not scale center point (probably :)
+    // TODO don't use pos arg, use abs coords instead
+    // TODO misleading name - is centered around point and scaled font but not scale center point (probably :)
     public void drawAntialiasedTextCenteredNoScale(Graphics2D g2, String text, int fontSize, Position pos, ImmutablePoint center, Color fgColor, Color bgColor) {
         Color original = g2.getColor();
         FontRenderContext frc = g2.getFontRenderContext();
@@ -208,7 +268,20 @@ public abstract class AbstractGridLayer implements GridLayer {
         tl.draw(g2, x,  y+h);
         g2.setColor(original);
         g2.setTransform(orig);
+    }
 
+    protected Area getFeatureArea(GameState state, Feature f) {
+        Area area = new Area();
+
+        for (FeaturePointer fp : f.getPlaces()) {
+            Position pos = fp.getPosition();
+            Location loc = fp.getLocation();
+            PlacedTile pt = state.getPlacedTile(pos);
+
+            FeatureArea fa = rm.getFeatureArea(pt.getTile(), pt.getRotation(), loc).translateTo(pos);
+            area.add(fa.getDisplayArea());
+        }
+        return area;
     }
 
 }

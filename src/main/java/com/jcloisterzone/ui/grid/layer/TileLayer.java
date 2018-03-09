@@ -1,69 +1,88 @@
 package com.jcloisterzone.ui.grid.layer;
 
 import java.awt.Graphics2D;
-import java.awt.Image;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.Comparator;
 
 import com.google.common.eventbus.Subscribe;
 import com.jcloisterzone.board.Position;
+import com.jcloisterzone.board.Rotation;
 import com.jcloisterzone.board.Tile;
-import com.jcloisterzone.event.TileEvent;
+import com.jcloisterzone.event.GameChangedEvent;
+import com.jcloisterzone.game.state.PlacedTile;
 import com.jcloisterzone.ui.GameController;
 import com.jcloisterzone.ui.grid.GridPanel;
+import com.jcloisterzone.ui.resources.TileImage;
+
+import io.vavr.Tuple2;
+import io.vavr.collection.LinkedHashMap;
+import io.vavr.collection.SortedSet;
+import io.vavr.collection.TreeSet;
 
 public class TileLayer extends AbstractGridLayer {
 
-    //keep own copy of tiles in Swing thread to prevent concurent modification ex. of tile list on game
-    private List<Tile> placedTiles = new ArrayList<>();
+    private TilePlacementLayer tilePlacementLayer;
+
+    class OrderByRowsComparator implements Comparator<Tuple2<Position, PlacedTile>> {
+        @Override
+        public int compare(Tuple2<Position, PlacedTile> o1, Tuple2<Position, PlacedTile> o2) {
+            if (o1._1 == null) {
+                return o2._1 == null ? 0 : 1;
+            }
+            return o1._1.compareTo(o2._1);
+        }
+    }
+
+    private SortedSet<Tuple2<Position, PlacedTile>> sortedPlacedTiles = TreeSet.empty();
+
 
     public TileLayer(GridPanel gridPanel, GameController gc) {
         super(gridPanel, gc);
+    }
 
-        gc.register(this);
+    @Subscribe
+    public void handleGameChanged(GameChangedEvent ev) {
+        if (ev.hasPlacedTilesChanged()) {
+            LinkedHashMap<Position, PlacedTile> placedTiles = ev.getCurrentState().getPlacedTiles();
+            sortedPlacedTiles = placedTiles.toSortedSet(new OrderByRowsComparator());
+            gridPanel.repaint();
+        }
     }
 
     @Override
     public void paint(Graphics2D g2) {
         //TODO nice shadow
-        if (!getClient().getGridPanel().isLayerVisible(AbstractTilePlacementLayer.class)) {
+        if (!tilePlacementLayer.isVisible()) {
             g2.setColor(getClient().getTheme().getTileBorder());
-            int squareSize = getSquareSize(),
-                thickness = squareSize / 11;
-            for (Tile tile : placedTiles) {
-                Position p = tile.getPosition();
-                if (tile.getPosition() != null) { //threading, tile can be removed
-                    int x = getOffsetX(p), y = getOffsetY(p);
-                    g2.fillRect(x-thickness, y-thickness, squareSize+2*thickness, squareSize+2*thickness);
-                }
+            int xSize = getTileWidth(),
+                ySize = getTileHeight(),
+                thickness = xSize / 11;
+            for (Tuple2<Position, PlacedTile> t : sortedPlacedTiles) {
+                Position p = t._1;
+                int x = getOffsetX(p), y = getOffsetY(p);
+                g2.fillRect(x-thickness, y-thickness, xSize+2*thickness, ySize+2*thickness);
             }
         }
 
-        for (Tile tile : placedTiles) {
-            if (tile.getPosition() != null) {
-                Image img = rm.getTileImage(tile);
-                g2.drawImage(img, getAffineTransform(img.getWidth(null), tile.getPosition(), tile.getRotation()), null);
-            }
+
+        for (Tuple2<Position, PlacedTile> t : sortedPlacedTiles) {
+            Position p = t._1;
+            Tile tdef = t._2.getTile();
+            Rotation rot = t._2.getRotation();
+            TileImage tileImg = rm.getTileImage(tdef.getId(), rot);
+            g2.drawImage(tileImg.getImage(), getAffineTransform(tileImg, p), null);
+        }
+
+        if (tilePlacementLayer.isVisible()) {
+            tilePlacementLayer.paintBridgePreview(g2);
         }
     }
 
-    @Subscribe
-    public void handleTileEvent(TileEvent ev) {
-	if (ev.getType() == TileEvent.PLACEMENT) {
-	    tilePlaced(ev.getTile());
-	} else if (ev.getType() == TileEvent.REMOVE) {
-	    tileRemoved(ev.getTile());
-	}
+    public TilePlacementLayer getTilePlacmentLayer() {
+        return tilePlacementLayer;
     }
 
-    private void tilePlaced(Tile tile) {
-        placedTiles.add(tile);
+    public void setTilePlacmentLayer(TilePlacementLayer tilePlacementLayer) {
+        this.tilePlacementLayer = tilePlacementLayer;
     }
-
-    private void tileRemoved(Tile tile) {
-        placedTiles.remove(tile);
-    }
-
-
 
 }
